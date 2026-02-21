@@ -37,6 +37,9 @@ data/kas-ec-cert.pem
 # Generated IdP signing keys
 data/idp-signing-key.pem
 
+# Generated runtime config
+data/opentdf.yaml
+
 # TDFLite runtime state
 data/*.db
 data/*.sqlite
