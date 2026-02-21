@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-02-21
 **Branch:** main
-**Phase:** 0 — Wrap-and-Shim
+**Phase:** 0 — Wrap-and-Shim (COMPLETE)
 
 ## What is TDFLite?
 
@@ -12,32 +12,46 @@ TDFLite starts an **embedded PostgreSQL**, a **built-in OIDC IdP**, and then cal
 
 ## Current State
 
-- **Strategy pivot complete:** Abandoned clean-room reimplementation in favor of wrap-and-shim
-- **Architecture plan written:** See `docs/ARCHITECTURE.md` for full details
-- **Old scaffolding present:** Previous Go interface stubs still in `internal/` — to be removed in Phase 0a
-- **Nothing runs yet** — all implementation is ahead
+Phase 0 is **complete and verified end-to-end:**
+- `go build -o tdflite ./cmd/tdflite` → single binary
+- `./tdflite serve --port 9090` starts everything:
+  - Embedded PostgreSQL on :15432
+  - idplite OIDC IdP on :15433
+  - OpenTDF platform with all 17 services on :9090
+  - 39 database migrations auto-applied
+- `/healthz` returns `{"status":"SERVING"}`
+- idplite issues valid JWTs via `client_credentials` grant
+- All 33+ unit tests pass
 
-## What's Next (Phase 0)
+## Architecture
 
-1. **0a. Repo restructure** — Remove old scaffolding, rewrite `go.mod` with platform + embedded-postgres deps
-2. **0b. idplite** — Build OIDC IdP (~520 lines): discovery, JWKS, token endpoint
-3. **0c. Config loader** — Implement `config.Loader` interface for embedded-postgres + idplite injection
-4. **0d. main.go** — Orchestrate startup: embedded-postgres → idplite → `server.Start()`
-5. **0e. KAS key generation** — Generate RSA + EC key pairs on first run
-6. **0f. Default config** — Write `tdflite.yaml` in OpenTDF format
-7. **0g. Integration test** — Test with `otdfctl` CLI
-
-Tasks 0b, 0c, 0e can run in parallel. Task 0d depends on all others.
-
-## Key Design Decision
-
-**Wrap, don't rewrite.** The OpenTDF platform has ~40+ DB migrations, sqlc-generated queries, ConnectRPC+gRPC+REST multiplexing, casbin authorization, DPoP support, audit logging, and much more. Reimplementing all of that would take months. Instead, we import the real platform as a Go dependency and inject our own infrastructure (embedded Postgres, built-in IdP) via the platform's exported `StartOptions`.
+```
+┌──────────────────────────────────────────────────────┐
+│  tdflite serve                                       │
+│                                                      │
+│  1. keygen.EnsureKeys()     → RSA + EC key pairs     │
+│  2. embeddedpg.Start()      → PostgreSQL on :15432   │
+│  3. idplite.Start()         → OIDC IdP on :15433     │
+│  4. loader.WriteConfigFile()→ opentdf.yaml generated  │
+│  5. server.Start()          → Full OpenTDF platform   │
+└──────────────────────────────────────────────────────┘
+```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `docs/ARCHITECTURE.md` | Full architecture plan, component details, config spec |
+| `cmd/tdflite/main.go` | Orchestrator — startup sequence |
+| `internal/idplite/idplite.go` | Built-in OIDC IdP (544 lines) |
+| `internal/embeddedpg/embeddedpg.go` | Embedded PostgreSQL wrapper |
+| `internal/loader/loader.go` | OpenTDF config YAML generator |
+| `internal/keygen/keygen.go` | KAS RSA + EC key pair generation |
 | `data/identity.json` | Default identities (admin + sdk-client) |
 | `CLAUDE.md` | Agent instructions |
 | `TODO.md` | Task tracking |
+
+## What's Next (Phase 1)
+
+- Replace embedded-postgres with `modernc.org/sqlite` for true single-binary
+- Or proceed to Phase 2 (in-memory mode for testing)
+- Or add `otdfctl` integration tests
