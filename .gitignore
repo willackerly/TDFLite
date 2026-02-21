@@ -21,8 +21,7 @@ coverage.html
 .DS_Store
 Thumbs.db
 
-# Go
-vendor/
+# Go (vendor/ is committed — offline builds)
 
 # Embedded Postgres runtime data
 data/postgres/
