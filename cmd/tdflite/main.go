@@ -106,6 +106,7 @@ func runServe(args []string) error {
 	// Step 3: Start idplite OIDC IdP.
 	idpCfg := idplite.Config{
 		Issuer:         fmt.Sprintf("http://localhost:%d", *idpPort),
+		Audience:       fmt.Sprintf("http://localhost:%d", *platformPort),
 		Port:           *idpPort,
 		SigningKeyPath: filepath.Join(*dataDir, "idp-signing-key.pem"),
 		IdentityFile:   filepath.Join(*dataDir, "identity.json"),
@@ -135,8 +136,7 @@ func runServe(args []string) error {
 	cfgFile := *configPath
 	if cfgFile == "" {
 		// Generate a config file pointing at our embedded infrastructure.
-		loaderCfg := loader.DefaultConfig(*pgPort, *idpPort)
-		loaderCfg.ServerPort = *platformPort
+		loaderCfg := loader.DefaultConfig(*pgPort, *idpPort, *platformPort)
 
 		cfgFile = filepath.Join(*dataDir, "opentdf.yaml")
 		logger.Info("generating OpenTDF config", "path", cfgFile)

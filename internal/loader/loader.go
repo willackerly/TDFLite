@@ -45,8 +45,8 @@ type CryptoKeyConfig struct {
 
 // DefaultConfig returns a TDFLiteConfig with sensible defaults for local
 // development. pgPort is the embedded PostgreSQL port, idpPort is the
-// built-in OIDC IdP port.
-func DefaultConfig(pgPort int, idpPort int) TDFLiteConfig {
+// built-in OIDC IdP port, serverPort is the platform server port.
+func DefaultConfig(pgPort, idpPort, serverPort int) TDFLiteConfig {
 	return TDFLiteConfig{
 		DBHost:     "localhost",
 		DBPort:     pgPort,
@@ -57,9 +57,9 @@ func DefaultConfig(pgPort int, idpPort int) TDFLiteConfig {
 		DBSchema:   "opentdf",
 
 		AuthIssuer:   fmt.Sprintf("http://localhost:%d", idpPort),
-		AuthAudience: "http://localhost:8080",
+		AuthAudience: fmt.Sprintf("http://localhost:%d", serverPort),
 
-		ServerPort: 8080,
+		ServerPort: serverPort,
 
 		EntityResolutionMode: "claims",
 

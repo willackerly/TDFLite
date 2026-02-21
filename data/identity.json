@@ -7,6 +7,86 @@
       "client_secret": "admin-secret",
       "subject_id": "00000000-0000-0000-0000-000000000001",
       "roles": ["admin", "standard"]
+    },
+    {
+      "username": "alice",
+      "password": "alice-password",
+      "client_id": "alice-client",
+      "client_secret": "alice-secret",
+      "subject_id": "00000000-0000-0000-0000-000000000010",
+      "roles": ["standard"],
+      "custom_claims": {
+        "classification_level": "TOP_SECRET",
+        "sci_control_system": ["SI", "HCS", "TK"],
+        "sap_program": [],
+        "releasable_to": ["USA", "GBR", "CAN", "AUS", "NZL"],
+        "dissemination_controls": ["NOFORN", "REL TO"],
+        "clearance_type": "SCI"
+      }
+    },
+    {
+      "username": "bob",
+      "password": "bob-password",
+      "client_id": "bob-client",
+      "client_secret": "bob-secret",
+      "subject_id": "00000000-0000-0000-0000-000000000011",
+      "roles": ["standard"],
+      "custom_claims": {
+        "classification_level": "TOP_SECRET",
+        "sci_control_system": [],
+        "sap_program": [],
+        "releasable_to": ["USA"],
+        "dissemination_controls": [],
+        "clearance_type": "COLLATERAL"
+      }
+    },
+    {
+      "username": "carol",
+      "password": "carol-password",
+      "client_id": "carol-client",
+      "client_secret": "carol-secret",
+      "subject_id": "00000000-0000-0000-0000-000000000012",
+      "roles": ["standard"],
+      "custom_claims": {
+        "classification_level": "SECRET",
+        "sci_control_system": [],
+        "sap_program": [],
+        "releasable_to": ["USA", "GBR", "CAN", "AUS", "NZL"],
+        "dissemination_controls": [],
+        "clearance_type": "COLLATERAL"
+      }
+    },
+    {
+      "username": "dave",
+      "password": "dave-password",
+      "client_id": "dave-client",
+      "client_secret": "dave-secret",
+      "subject_id": "00000000-0000-0000-0000-000000000013",
+      "roles": ["standard"],
+      "custom_claims": {
+        "classification_level": "CONFIDENTIAL",
+        "sci_control_system": [],
+        "sap_program": [],
+        "releasable_to": ["USA"],
+        "dissemination_controls": [],
+        "clearance_type": "COLLATERAL"
+      }
+    },
+    {
+      "username": "eve",
+      "password": "eve-password",
+      "client_id": "eve-client",
+      "client_secret": "eve-secret",
+      "subject_id": "00000000-0000-0000-0000-000000000014",
+      "roles": ["standard"],
+      "custom_claims": {
+        "classification_level": "UNCLASSIFIED",
+        "sci_control_system": [],
+        "sap_program": [],
+        "releasable_to": [],
+        "dissemination_controls": [],
+        "clearance_type": "NONE"
+      }
     }
   ],
   "clients": [

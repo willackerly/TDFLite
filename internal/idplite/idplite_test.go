@@ -545,6 +545,177 @@ func TestKeyPersistence(t *testing.T) {
 	}
 }
 
+func TestAudienceConfigOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	identityData := `{
+		"users": [],
+		"clients": [
+			{
+				"client_id": "test-client",
+				"client_secret": "secret",
+				"subject_id": "00000000-0000-0000-0000-000000000001",
+				"roles": ["standard"]
+			}
+		]
+	}`
+
+	identityPath := filepath.Join(tmpDir, "identity.json")
+	if err := os.WriteFile(identityPath, []byte(identityData), 0o644); err != nil {
+		t.Fatalf("write identity file: %v", err)
+	}
+
+	keyPath := filepath.Join(tmpDir, "signing-key.pem")
+
+	srv, err := New(Config{
+		Issuer:         "http://localhost:0",
+		Audience:       "http://localhost:9090",
+		Port:           0,
+		SigningKeyPath: keyPath,
+		IdentityFile:   identityPath,
+		TokenTTL:       5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	defer srv.Stop(context.Background())
+
+	addr := srv.Addr()
+	baseURL := fmt.Sprintf("http://%s", addr)
+	srv.issuer = baseURL
+
+	form := url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {"test-client"},
+		"client_secret": {"secret"},
+	}
+
+	resp, err := http.PostForm(baseURL+"/token", form)
+	if err != nil {
+		t.Fatalf("POST /token: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var tokenResp map[string]any
+	json.NewDecoder(resp.Body).Decode(&tokenResp)
+	accessToken := tokenResp["access_token"].(string)
+
+	tok, err := jwt.Parse([]byte(accessToken), jwt.WithVerify(false))
+	if err != nil {
+		t.Fatalf("parse token: %v", err)
+	}
+
+	aud := tok.Audience()
+	if len(aud) != 1 || aud[0] != "http://localhost:9090" {
+		t.Errorf("expected audience [http://localhost:9090], got %v", aud)
+	}
+}
+
+func TestCustomClaimsInToken(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	identityData := `{
+		"users": [],
+		"clients": [
+			{
+				"client_id": "alice",
+				"client_secret": "secret",
+				"subject_id": "00000000-0000-0000-0000-000000000010",
+				"roles": ["standard"],
+				"custom_claims": {
+					"classification_level": "TOP_SECRET",
+					"sci_control_system": ["SI", "HCS", "TK"],
+					"releasable_to": ["USA", "GBR", "CAN", "AUS", "NZL"]
+				}
+			}
+		]
+	}`
+
+	identityPath := filepath.Join(tmpDir, "identity.json")
+	if err := os.WriteFile(identityPath, []byte(identityData), 0o644); err != nil {
+		t.Fatalf("write identity file: %v", err)
+	}
+
+	keyPath := filepath.Join(tmpDir, "signing-key.pem")
+
+	srv, err := New(Config{
+		Issuer:         "http://localhost:0",
+		Port:           0,
+		SigningKeyPath: keyPath,
+		IdentityFile:   identityPath,
+		TokenTTL:       5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := srv.Start(ctx); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	defer srv.Stop(context.Background())
+
+	addr := srv.Addr()
+	baseURL := fmt.Sprintf("http://%s", addr)
+	srv.issuer = baseURL
+
+	form := url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {"alice"},
+		"client_secret": {"secret"},
+	}
+
+	resp, err := http.PostForm(baseURL+"/token", form)
+	if err != nil {
+		t.Fatalf("POST /token: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var tokenResp map[string]any
+	json.NewDecoder(resp.Body).Decode(&tokenResp)
+	accessToken := tokenResp["access_token"].(string)
+
+	tok, err := jwt.Parse([]byte(accessToken), jwt.WithVerify(false))
+	if err != nil {
+		t.Fatalf("parse token: %v", err)
+	}
+
+	claims := tok.PrivateClaims()
+
+	// Check classification_level claim.
+	cl, ok := claims["classification_level"].(string)
+	if !ok || cl != "TOP_SECRET" {
+		t.Errorf("expected classification_level=TOP_SECRET, got %v", claims["classification_level"])
+	}
+
+	// Check sci_control_system is an array.
+	sci, ok := claims["sci_control_system"].([]any)
+	if !ok || len(sci) != 3 {
+		t.Errorf("expected sci_control_system with 3 elements, got %v", claims["sci_control_system"])
+	}
+
+	// Check releasable_to is an array.
+	rel, ok := claims["releasable_to"].([]any)
+	if !ok || len(rel) != 5 {
+		t.Errorf("expected releasable_to with 5 elements, got %v", claims["releasable_to"])
+	}
+
+	// Verify realm_access.roles still present.
+	ra, ok := claims["realm_access"].(map[string]any)
+	if !ok {
+		t.Fatal("expected realm_access claim")
+	}
+	roles, ok := ra["roles"].([]any)
+	if !ok || len(roles) == 0 {
+		t.Error("expected non-empty roles in realm_access")
+	}
+}
+
 func TestClientCannotUsePasswordGrant(t *testing.T) {
 	_, baseURL := testServer(t)
 

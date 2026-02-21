@@ -38,6 +38,7 @@ const (
 // Config holds configuration for the idplite server.
 type Config struct {
 	Issuer         string
+	Audience       string        // audience claim in issued tokens (defaults to Issuer if empty)
 	Port           int
 	SigningKeyPath string        // path to RSA private key PEM (auto-generate if missing)
 	IdentityFile   string        // path to identity.json
@@ -46,12 +47,13 @@ type Config struct {
 
 // Identity represents a user or client identity that can authenticate.
 type Identity struct {
-	ClientID     string   `json:"client_id"`
-	ClientSecret string   `json:"client_secret"`
-	Username     string   `json:"username,omitempty"`
-	Password     string   `json:"password,omitempty"`
-	SubjectID    string   `json:"subject_id"`
-	Roles        []string `json:"roles,omitempty"`
+	ClientID     string         `json:"client_id"`
+	ClientSecret string         `json:"client_secret"`
+	Username     string         `json:"username,omitempty"`
+	Password     string         `json:"password,omitempty"`
+	SubjectID    string         `json:"subject_id"`
+	Roles        []string       `json:"roles,omitempty"`
+	CustomClaims map[string]any `json:"custom_claims,omitempty"`
 }
 
 // identityFile represents the on-disk JSON format for identities.
@@ -63,6 +65,7 @@ type identityFile struct {
 // Server is a lightweight OIDC Identity Provider that issues JWTs.
 type Server struct {
 	issuer     string
+	audience   string // audience claim in issued tokens
 	httpServer *http.Server
 	signingKey jwk.Key // RSA private key for signing JWTs
 	publicKeys jwk.Set // JWK Set for the /jwks endpoint
@@ -120,8 +123,14 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("idplite: load identities: %w", err)
 	}
 
+	audience := cfg.Audience
+	if audience == "" {
+		audience = cfg.Issuer
+	}
+
 	s := &Server{
 		issuer:     strings.TrimRight(cfg.Issuer, "/"),
+		audience:   strings.TrimRight(audience, "/"),
 		signingKey: sigKey,
 		publicKeys: pubSet,
 		identities: identities,
@@ -320,7 +329,7 @@ func (s *Server) issueToken(identity Identity, clientID string, includeUsername 
 	builder := jwt.NewBuilder().
 		Issuer(s.issuer).
 		Subject(identity.SubjectID).
-		Audience([]string{s.issuer}).
+		Audience([]string{s.audience}).
 		IssuedAt(now).
 		Expiration(now.Add(s.tokenTTL)).
 		JwtID(generateUUID()).
@@ -334,6 +343,11 @@ func (s *Server) issueToken(identity Identity, clientID string, includeUsername 
 		builder = builder.Claim("realm_access", map[string]any{
 			"roles": identity.Roles,
 		})
+	}
+
+	// Emit custom claims as top-level JWT claims.
+	for k, v := range identity.CustomClaims {
+		builder = builder.Claim(k, v)
 	}
 
 	tok, err := builder.Build()
