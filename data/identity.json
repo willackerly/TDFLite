@@ -1,30 +1,26 @@
 {
-  "identities": [
+  "users": [
     {
-      "id": "00000000-0000-0000-0000-000000000001",
-      "subject": "admin",
-      "email": "admin@tdflite.local",
-      "name": "TDFLite Admin",
-      "client_id": "tdflite-admin",
-      "client_secret": "tdflite-admin-secret",
-      "claims": {
-        "roles": ["admin"],
-        "org": "tdflite"
-      },
-      "active": true
+      "username": "admin",
+      "password": "changeme",
+      "client_id": "admin-client",
+      "client_secret": "admin-secret",
+      "subject_id": "00000000-0000-0000-0000-000000000001",
+      "roles": ["admin", "standard"]
+    }
+  ],
+  "clients": [
+    {
+      "client_id": "opentdf-sdk",
+      "client_secret": "secret",
+      "subject_id": "00000000-0000-0000-0000-000000000002",
+      "roles": ["standard"]
     },
     {
-      "id": "00000000-0000-0000-0000-000000000002",
-      "subject": "sdk-client",
-      "email": "sdk@tdflite.local",
-      "name": "SDK Client",
-      "client_id": "tdflite-sdk",
-      "client_secret": "tdflite-sdk-secret",
-      "claims": {
-        "roles": ["client"],
-        "org": "tdflite"
-      },
-      "active": true
+      "client_id": "opentdf",
+      "client_secret": "secret",
+      "subject_id": "00000000-0000-0000-0000-000000000003",
+      "roles": ["admin", "standard"]
     }
   ]
 }
