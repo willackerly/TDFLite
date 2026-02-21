@@ -1,5 +1,5 @@
-# Binaries
-tdflite
+# Binaries (only in root, not cmd/tdflite/ directory)
+/tdflite
 *.exe
 *.dll
 *.so
