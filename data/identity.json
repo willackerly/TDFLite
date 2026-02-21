@@ -1,0 +1,30 @@
+{
+  "identities": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "subject": "admin",
+      "email": "admin@tdflite.local",
+      "name": "TDFLite Admin",
+      "client_id": "tdflite-admin",
+      "client_secret": "tdflite-admin-secret",
+      "claims": {
+        "roles": ["admin"],
+        "org": "tdflite"
+      },
+      "active": true
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "subject": "sdk-client",
+      "email": "sdk@tdflite.local",
+      "name": "SDK Client",
+      "client_id": "tdflite-sdk",
+      "client_secret": "tdflite-sdk-secret",
+      "claims": {
+        "roles": ["client"],
+        "org": "tdflite"
+      },
+      "active": true
+    }
+  ]
+}

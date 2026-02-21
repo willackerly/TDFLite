@@ -1,0 +1,35 @@
+# TDFLite Configuration
+# See CLAUDE.md "Environment Variables" for env var overrides.
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  tls:
+    enabled: false
+    # cert_file: /path/to/cert.pem
+    # key_file: /path/to/key.pem
+
+store:
+  # Store backend: "memory" (in-process only) or "jsonfile" (memory + JSON persistence)
+  type: memory
+  # Directory for JSON file persistence (used when type=jsonfile)
+  data_dir: ./data
+
+auth:
+  enabled: true
+  # Provider: "builtin" (lightweight OIDC IdP) or "external" (delegate to Keycloak, Auth0, etc.)
+  provider: builtin
+  audience: "https://tdflite.local"
+  # issuer: "https://keycloak.example.com/realms/opentdf"  # for external provider
+  builtin_idp:
+    identity_file: ./data/identity.json
+
+kas:
+  # Default asymmetric key algorithm: "rsa:2048" or "ec:secp256r1"
+  default_algorithm: "rsa:2048"
+  # Crypto provider: "software" (Go stdlib) or future: "hsm", "kms"
+  crypto_provider: software
+
+logging:
+  level: info    # debug, info, warn, error
+  format: text   # text, json
