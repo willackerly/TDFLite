@@ -24,7 +24,19 @@ Thumbs.db
 # Go
 vendor/
 
-# TDFLite runtime state (don't commit actual runtime data)
-# Keep the default/example data files
+# Embedded Postgres runtime data
+data/postgres/
+data/cache/
+
+# Generated KAS keys (created on first run)
+data/kas-private.pem
+data/kas-cert.pem
+data/kas-ec-private.pem
+data/kas-ec-cert.pem
+
+# Generated IdP signing keys
+data/idp-signing-key.pem
+
+# TDFLite runtime state
 data/*.db
 data/*.sqlite

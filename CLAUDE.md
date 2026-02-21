@@ -4,7 +4,9 @@ Project instructions for Claude Code. These override defaults—follow them exac
 
 ## Project: TDFLite
 
-Lightweight, single-binary reimplementation of the OpenTDF platform in pure Go. No Docker, no Postgres, no Keycloak. All services (Policy, Authorization, KAS, Entity Resolution, OIDC IdP) run in one daemon with pluggable backends behind clean Go interfaces.
+A **thin wrapper binary** around the real [OpenTDF platform](https://github.com/opentdf/platform) that eliminates all infrastructure dependencies. Starts embedded PostgreSQL + built-in OIDC IdP, then calls the real `server.Start()`. Full OpenTDF functionality. Zero Docker. One binary.
+
+**Strategy:** Wrap, don't rewrite. See `docs/ARCHITECTURE.md` for full details.
 
 ## Cold Start (New Agent?)
 
@@ -14,8 +16,8 @@ Lightweight, single-binary reimplementation of the OpenTDF platform in pure Go. 
 3. `TODO.md` → what needs doing
 
 **Then deep dive:**
-4. `AGENTS.md` → norms, workstreams, doc maintenance policy
-5. `docs/README.md` → full documentation tree
+4. `docs/ARCHITECTURE.md` → full architecture plan, component specs, config format
+5. `AGENTS.md` → norms, workstreams, doc maintenance policy
 
 ## Commands
 
@@ -33,43 +35,40 @@ golangci-lint run                 # lint (if installed)
 
 ## Structure
 
-- `cmd/tdflite/` — Main binary entry point
-- `internal/server/` — HTTP/gRPC server wiring, router, middleware
-- `internal/config/` — Configuration loading (YAML)
-- `internal/store/` — **Storage interface** + implementations (memory, jsonfile)
-- `internal/authn/` — **Authentication interface** + lightweight OIDC IdP
-- `internal/authz/` — **Authorization interface** + ABAC engine
-- `internal/kas/` — **Key Access Server** interface + handlers
-- `internal/policy/` — **Policy service** interface + handlers
-- `internal/entityresolution/` — **Entity resolution** interface + JWT resolver
-- `internal/crypto/` — **Crypto operations** interface + software impl
-- `pkg/tdf/` — TDF and NanoTDF format library (public API)
-- `config/` — Default configuration files (YAML)
-- `data/` — Default identity/state files (JSON)
-- `docs/` — Documentation
+- `cmd/tdflite/` — Main binary: embedded-postgres → idplite → server.Start()
+- `internal/idplite/` — Built-in OIDC IdP (discovery, JWKS, token endpoint)
+- `internal/loader/` — Custom `config.Loader` for injecting our infrastructure
+- `internal/embeddedpg/` — Embedded PostgreSQL lifecycle wrapper
+- `internal/keygen/` — KAS key pair generation (RSA + EC) on first run
+- `config/` — Default `tdflite.yaml` in OpenTDF config format
+- `data/` — Runtime state: identity JSON, generated keys, Postgres data
+- `docs/` — Documentation (especially `ARCHITECTURE.md`)
+
+## Key Dependencies
+
+| Dependency | Purpose |
+|-----------|---------|
+| `github.com/opentdf/platform/service` | The real OpenTDF platform |
+| `github.com/fergusstrange/embedded-postgres` | Zero-Docker embedded PostgreSQL |
+| `github.com/lestrrat-go/jwx/v2` | JWT signing for idplite |
 
 ## Coding Style
 
 Go idiomatic. `gofmt` defaults. No framework dependencies—stdlib `net/http` and `crypto/*` where possible.
 
-**Interface-first design** is the core architectural principle:
-- Every major subsystem is defined as a Go interface in its package root
-- Lightweight implementations live in sub-packages (e.g., `store/memory/`, `store/jsonfile/`)
-- Heavier implementations (Postgres, Keycloak, HSM) can be swapped in later without changing callers
-- Constructors return the interface type, not the concrete type
-- Keep interfaces small and focused (Interface Segregation Principle)
-
 Name files after their primary export. Keep changes minimal—don't over-engineer.
 
-Use `context.Context` as first parameter on all interface methods.
+Use `context.Context` as first parameter on methods that do I/O.
 Use `error` returns, not panics. Wrap errors with `fmt.Errorf("context: %w", err)`.
+
+**Important:** We are wrapping the OpenTDF platform, not reimplementing it. Our code should be minimal glue — idplite, config loader, embedded-postgres lifecycle, key generation, and the main orchestrator. Everything else comes from the platform.
 
 ## Testing
 
 Co-locate unit tests beside code (`foo_test.go` next to `foo.go`).
 Integration tests in `tests/` directory.
-Test against interfaces, not concrete implementations.
 Use table-driven tests. Use `testify` only if already a dependency.
+Test with `otdfctl` CLI for end-to-end validation.
 
 ---
 
@@ -141,11 +140,9 @@ Pre-approved for fetching:
 **Fundamental architectural decisions** that would be hard to reverse:
 
 1. **New major dependencies** — Adding a framework or large library
-2. **Interface changes** — Modifying published Go interfaces (breaking change)
-3. **Security model changes** — Altering encryption, auth, or key management approach
-4. **New subsystems** — Creating entirely new internal packages
-5. **Protocol changes** — Modifying API surface, wire formats
-6. **Breaking changes** — Changes that break existing callers
+2. **Security model changes** — Altering encryption, auth, or key management approach
+3. **Protocol changes** — Modifying API surface, wire formats
+4. **Breaking changes** — Changes that break existing callers
 
 **When in doubt:** If a change follows existing patterns and is reversible, just do it. If it establishes a new pattern or is hard to undo, enter plan mode.
 
@@ -156,42 +153,40 @@ Pre-approved for fetching:
 - Deleting production data or databases
 - Modifying secrets/credentials in production
 
-## Architecture Principles
+## Architecture
 
-### 1. Interface-First, Swap-Ready
+### Wrap-and-Shim Strategy
 
-Every subsystem has a clean Go interface. The "lite" implementations (in-memory, JSON files, software crypto) are the defaults. Heavier implementations can be added:
+```
+┌──────────────────────────────────────────────┐
+│              tdflite binary (Go)             │
+│                                              │
+│  1. Start embedded-postgres (:15432)         │
+│  2. Start idplite OIDC IdP (:15433)          │
+│  3. Create custom config.Loader              │
+│  4. Call server.Start() with options          │
+│                                              │
+│  Go module dependencies:                     │
+│    github.com/opentdf/platform/service       │
+│    github.com/fergusstrange/embedded-postgres │
+│    github.com/lestrrat-go/jwx/v2            │
+└──────────────────────────────────────────────┘
+         │                    │
+         ▼                    ▼
+   ┌───────────┐       ┌───────────┐
+   │ embedded  │       │  idplite  │
+   │ postgres  │       │   OIDC    │
+   │  :15432   │       │  :15433   │
+   └───────────┘       └───────────┘
+```
 
-| Subsystem | Lite Default | Swap-In Options |
-|-----------|-------------|-----------------|
-| **Store** | In-memory + JSON file persistence | PostgreSQL, SQLite, etcd |
-| **AuthN** | Built-in lightweight OIDC IdP | Keycloak, Auth0, Okta |
-| **AuthZ** | Go-native ABAC engine | OPA/Rego, Casbin, Cedar |
-| **Crypto** | `crypto/rsa` + `crypto/ecdsa` (software) | PKCS#11 HSM, AWS KMS, Vault Transit |
-| **Entity Resolution** | JWT claims extraction | LDAP, PostgreSQL, SCIM |
-| **KAS** | In-process key management | Remote KAS, split-key federation |
-
-### 2. Single Binary, Zero Infrastructure
-
-`go build` produces one binary. `./tdflite serve` starts everything. No Docker, no Postgres, no Keycloak, no Caddy.
-
-### 3. OpenTDF Protocol Compatible
-
-Preserve the same API surface as OpenTDF platform so existing SDKs and `otdfctl` work against TDFLite. gRPC + ConnectRPC + REST/JSON gateway.
-
-### 4. Configuration via YAML, State via JSON
-
-- `config/tdflite.yaml` — daemon configuration
-- `data/` — runtime state persisted as JSON files (identity, policy, keys)
+See `docs/ARCHITECTURE.md` for full details including config spec, component details, and phased roadmap.
 
 ## Active Workstreams
 
-- **P0** — Core scaffolding and interface definitions (current)
-- **P1** — Policy service + in-memory store
-- **P2** — KAS with software crypto
-- **P3** — Built-in OIDC IdP
-- **P4** — Authorization engine
-- **P5** — TDF encrypt/decrypt end-to-end
+- **Phase 0** — Wrap-and-shim: embedded-postgres + idplite + server.Start() (current)
+- **Phase 1** — SQLite shim: replace embedded-postgres with modernc.org/sqlite (future)
+- **Phase 2** — In-memory mode: ephemeral mode for testing/CI (future)
 
 ## Environment Variables
 
