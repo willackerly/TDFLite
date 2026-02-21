@@ -1,5 +1,5 @@
-module github.com/willnorris/tdflite
+module github.com/willackerly/TDFLite
 
-go 1.22.3
+go 1.25.0
 
-require gopkg.in/yaml.v3 v3.0.1
+toolchain go1.26.0
