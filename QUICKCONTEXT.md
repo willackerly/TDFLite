@@ -1,8 +1,8 @@
 # Quick Context
 
-**Last Updated:** 2026-02-21
+**Last Updated:** 2026-02-22
 **Branch:** main
-**Phase:** 0 — Wrap-and-Shim (COMPLETE)
+**Phase:** 1 — Sealed Policy Bundle (IN PROGRESS)
 
 ## What is TDFLite?
 
@@ -12,7 +12,13 @@ TDFLite starts an **embedded PostgreSQL**, a **built-in OIDC IdP**, and then cal
 
 ## Current State
 
-Phase 0 is **complete and verified end-to-end:**
+Phase 0 (Wrap-and-Shim) is **complete and verified end-to-end.**
+Phase 1 (Sealed Policy Bundle) is **in progress:**
+- Object contract defined: `Bundle`, `Attribute`, `Identity`, `Sealed` structs
+- Schema validation implemented: cross-references attributes and identity claims
+- Remaining: seal/unseal with age + SSH keys, signature, auto-provisioner, CLI commands, E2E tests
+
+What works today:
 - `go build -o tdflite ./cmd/tdflite` → single binary
 - `./tdflite serve --port 9090` starts everything:
   - Embedded PostgreSQL on :15432
@@ -46,12 +52,19 @@ Phase 0 is **complete and verified end-to-end:**
 | `internal/embeddedpg/embeddedpg.go` | Embedded PostgreSQL wrapper |
 | `internal/loader/loader.go` | OpenTDF config YAML generator |
 | `internal/keygen/keygen.go` | KAS RSA + EC key pair generation |
+| `internal/policybundle/bundle.go` | Sealed policy bundle schema + validation |
 | `data/identity.json` | Default identities (admin + sdk-client) |
 | `CLAUDE.md` | Agent instructions |
 | `TODO.md` | Task tracking |
 
-## What's Next (Phase 1)
+## What's Next
 
-- Replace embedded-postgres with `modernc.org/sqlite` for true single-binary
-- Or proceed to Phase 2 (in-memory mode for testing)
-- Or add `otdfctl` integration tests
+**Phase 1 — Sealed Policy Bundle** (active):
+- Seal/unseal with `age` library + SSH keys
+- Signature generation/verification
+- Auto-provisioner: policy file to ConnectRPC calls on boot
+- CLI commands: `tdflite serve --policy`, `tdflite policy seal`, `tdflite policy rebind`
+- E2E test: seal, boot, encrypt, decrypt
+
+**Phase 2** — SQLite shim (replace embedded-postgres with `modernc.org/sqlite`)
+**Phase 3** — In-memory mode for testing/CI

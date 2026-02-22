@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "attributes": [
+    {
+      "name": "classification_level",
+      "rule": "hierarchy",
+      "values": ["TOP_SECRET", "SECRET", "CONFIDENTIAL", "UNCLASSIFIED"]
+    },
+    {
+      "name": "sci_control_system",
+      "rule": "allOf",
+      "values": ["SI", "HCS", "TK"]
+    },
+    {
+      "name": "releasable_to",
+      "rule": "allOf",
+      "values": ["USA", "GBR", "CAN", "AUS", "NZL"]
+    }
+  ],
+  "identities": {
+    "alice": {
+      "classification_level": "TOP_SECRET",
+      "sci_control_system": ["SI", "HCS", "TK"],
+      "releasable_to": ["USA", "GBR", "CAN", "AUS", "NZL"]
+    },
+    "bob": {
+      "classification_level": "TOP_SECRET",
+      "releasable_to": ["USA"]
+    },
+    "carol": {
+      "classification_level": "SECRET",
+      "releasable_to": ["USA", "GBR", "CAN", "AUS", "NZL"]
+    },
+    "dave": {
+      "classification_level": "CONFIDENTIAL",
+      "releasable_to": ["USA"]
+    },
+    "eve": {
+      "classification_level": "UNCLASSIFIED"
+    }
+  },
+  "sealed": {
+    "kas_keys": "age1placeholder-encrypted-kas-keys-would-go-here",
+    "idp_key": "age1placeholder-encrypted-idp-key-would-go-here",
+    "fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "signature": "PLACEHOLDER-base64-ed25519-signature-would-go-here"
+}

@@ -1,0 +1,41 @@
+{
+  "attributes": [
+    {
+      "name": "classification_level",
+      "rule": "hierarchy",
+      "values": ["TOP_SECRET", "SECRET", "CONFIDENTIAL", "UNCLASSIFIED"]
+    },
+    {
+      "name": "sci_control_system",
+      "rule": "allOf",
+      "values": ["SI", "HCS", "TK"]
+    },
+    {
+      "name": "releasable_to",
+      "rule": "allOf",
+      "values": ["USA", "GBR", "CAN", "AUS", "NZL"]
+    }
+  ],
+  "identities": {
+    "alice": {
+      "classification_level": "TOP_SECRET",
+      "sci_control_system": ["SI", "HCS", "TK"],
+      "releasable_to": ["USA", "GBR", "CAN", "AUS", "NZL"]
+    },
+    "bob": {
+      "classification_level": "TOP_SECRET",
+      "releasable_to": ["USA"]
+    },
+    "carol": {
+      "classification_level": "SECRET",
+      "releasable_to": ["USA", "GBR", "CAN", "AUS", "NZL"]
+    },
+    "dave": {
+      "classification_level": "CONFIDENTIAL",
+      "releasable_to": ["USA"]
+    },
+    "eve": {
+      "classification_level": "UNCLASSIFIED"
+    }
+  }
+}

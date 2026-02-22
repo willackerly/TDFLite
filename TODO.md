@@ -1,6 +1,6 @@
 # TODO
 
-**Last synced:** 2026-02-21
+**Last synced:** 2026-02-22
 
 ## Phase 0: Wrap-and-Shim — COMPLETE
 
@@ -14,14 +14,27 @@ All tasks done and verified end-to-end. Binary builds, all services start, healt
 - [x] 0f. Default config — tdflite.yaml in OpenTDF format
 - [x] 0g. main.go orchestrator + integration test
 
-## Phase 1: SQLite Shim (Future)
+## Phase 1: Sealed Policy Bundle (IN PROGRESS)
+
+A single JSON file replaces all config, provisioning scripts, and manual setup. Combined with an SSH key, one file boots a fully configured TDFLite instance.
+
+- [x] Define object contract (Go structs + JSON schema)
+- [x] Schema validation (attribute-identity cross-reference)
+- [ ] Seal/unseal with age library + SSH keys
+- [ ] Signature generation/verification
+- [ ] Auto-provisioner: policy file to ConnectRPC calls
+- [ ] Identity generator: policy identities to idplite format
+- [ ] Wire into cmd/tdflite (`serve --policy` + `seal` + `rebind` commands)
+- [ ] E2E test: seal, boot, encrypt, decrypt
+
+## Phase 2: SQLite Shim (Future)
 
 - [ ] Replace embedded-postgres with `modernc.org/sqlite`
 - [ ] Implement pgx-to-SQLite bridge or rewrite DB layer
 - [ ] True single binary — no Postgres download on first run
 - [ ] Estimated effort: ~30-45 days
 
-## Phase 2: In-Memory Mode (Future)
+## Phase 3: In-Memory Mode (Future)
 
 - [ ] Add ephemeral in-memory mode for testing/demos
 - [ ] No persistence, fresh state on every start
@@ -35,6 +48,8 @@ All tasks done and verified end-to-end. Binary builds, all services start, healt
 - [ ] Add `--log-format json` flag
 - [ ] Consider making default port configurable via env var
 - [ ] KAS registry auto-registration (avoid "no rows" warning on startup)
+- [ ] `tdflite policy seal` command
+- [ ] `tdflite policy rebind` command
 
 ## Code Debt
 

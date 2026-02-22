@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tdflite.dev/schemas/policy-bundle/v1",
+  "title": "TDFLite Policy Bundle",
+  "description": "A sealed policy bundle for TDFLite. Contains attribute definitions, identity-to-attribute assignments, and (when sealed) encrypted KAS key material. Combined with an SSH key, one file replaces all config, provisioning scripts, and manual setup. See https://github.com/opentdf/tdflite for details.",
+  "type": "object",
+  "required": ["attributes", "identities"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "description": "Schema version number. Currently must be 1. Omitting defaults to 1.",
+      "default": 1,
+      "const": 1
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Namespace for attribute fully-qualified names (FQNs). Attributes become: https://{namespace}/attr/{name}/value/{value}. Omitting defaults to \"tdflite.local\".",
+      "default": "tdflite.local",
+      "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$",
+      "minLength": 1,
+      "examples": ["tdflite.local", "example.com", "data.corp.internal"]
+    },
+    "attributes": {
+      "type": "array",
+      "description": "Policy attribute definitions. Each attribute has a name, an access rule type, and a list of allowed values. At least one attribute is required.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Attribute"
+      }
+    },
+    "identities": {
+      "type": "object",
+      "description": "Map of identity names to their attribute claims and optional credentials. Keys are usernames (e.g. \"alice\", \"bob\"). At least one identity is required.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/Identity"
+      }
+    },
+    "options": {
+      "$ref": "#/$defs/Options",
+      "description": "Optional overrides for power users. Controls token TTL and default subject mapping actions."
+    },
+    "sealed": {
+      "$ref": "#/$defs/Sealed",
+      "description": "Encrypted key material, present only after the bundle has been sealed with an SSH public key. Must be accompanied by a signature."
+    },
+    "signature": {
+      "type": "string",
+      "description": "Base64-encoded Ed25519 signature computed over all fields except the signature itself. Present only after sealing. Verified at boot to ensure the bundle has not been tampered with.",
+      "minLength": 1,
+      "examples": ["PLACEHOLDER-base64-ed25519-signature-would-go-here"]
+    }
+  },
+  "dependentRequired": {
+    "sealed": ["signature"],
+    "signature": ["sealed"]
+  },
+  "$defs": {
+    "Attribute": {
+      "type": "object",
+      "description": "A policy attribute definition specifying the attribute name, its access evaluation rule, and the set of allowed values.",
+      "required": ["name", "rule", "values"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Attribute identifier. Becomes part of the fully-qualified name: https://{namespace}/attr/{name}/value/{value}. Must contain only alphanumeric characters and underscores.",
+          "minLength": 1,
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "examples": ["classification_level", "sci_control_system", "releasable_to", "department"]
+        },
+        "rule": {
+          "type": "string",
+          "description": "How the attribute's values are evaluated during access decisions.\n\n- \"hierarchy\": Values are ordered by clearance level (first = highest). The user's level must be >= the data's level.\n- \"allOf\": The user must possess ALL values tagged on the data.\n- \"anyOf\": The user must possess AT LEAST ONE value tagged on the data.",
+          "enum": ["hierarchy", "allOf", "anyOf"]
+        },
+        "values": {
+          "type": "array",
+          "description": "Allowed values for this attribute. For hierarchy rules, order matters: the first element represents the highest clearance level. At least one value is required.",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An individual attribute value. Must be a non-empty string."
+          },
+          "examples": [
+            ["TOP_SECRET", "SECRET", "CONFIDENTIAL", "UNCLASSIFIED"],
+            ["SI", "HCS", "TK"],
+            ["USA", "GBR", "CAN", "AUS", "NZL"]
+          ]
+        }
+      },
+      "examples": [
+        {
+          "name": "classification_level",
+          "rule": "hierarchy",
+          "values": ["TOP_SECRET", "SECRET", "CONFIDENTIAL", "UNCLASSIFIED"]
+        },
+        {
+          "name": "releasable_to",
+          "rule": "allOf",
+          "values": ["USA", "GBR", "CAN", "AUS", "NZL"]
+        }
+      ]
+    },
+    "Identity": {
+      "type": "object",
+      "description": "Represents a user or service account identity. Contains optional credential overrides (admin, password, client_id, client_secret) and attribute claims as additional properties. Claim keys must match attribute names defined in the bundle's attributes array. Hierarchy attribute claims must be a single string value; allOf/anyOf attribute claims must be an array of strings.",
+      "properties": {
+        "admin": {
+          "type": "boolean",
+          "description": "When true, grants the identity the platform admin role. Default: false.",
+          "default": false
+        },
+        "password": {
+          "type": "string",
+          "description": "Overrides the default password for this identity. Default: \"{username}-secret\".",
+          "minLength": 1,
+          "examples": ["my-custom-password"]
+        },
+        "client_id": {
+          "type": "string",
+          "description": "Overrides the default OAuth2 client ID for this identity. Default: \"{username}-client\".",
+          "minLength": 1,
+          "examples": ["my-app-client"]
+        },
+        "client_secret": {
+          "type": "string",
+          "description": "Overrides the default OAuth2 client secret for this identity. Default: \"{username}-secret\".",
+          "minLength": 1,
+          "examples": ["my-app-secret"]
+        }
+      },
+      "additionalProperties": {
+        "description": "Attribute claim. The key must match an attribute name from the attributes array. The value type depends on the attribute's rule: a single string for hierarchy attributes, or an array of strings for allOf/anyOf attributes. All values must be members of the attribute's allowed values list.",
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Scalar string claim value, used for hierarchy attributes.",
+            "minLength": 1
+          },
+          {
+            "type": "array",
+            "description": "Array of string claim values, used for allOf/anyOf attributes.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          }
+        ]
+      },
+      "examples": [
+        {
+          "classification_level": "TOP_SECRET",
+          "sci_control_system": ["SI", "HCS", "TK"],
+          "releasable_to": ["USA", "GBR", "CAN", "AUS", "NZL"]
+        },
+        {
+          "classification_level": "SECRET",
+          "admin": true,
+          "password": "custom-pass"
+        }
+      ]
+    },
+    "Options": {
+      "type": "object",
+      "description": "Optional overrides for advanced configuration. All fields are optional.",
+      "additionalProperties": false,
+      "properties": {
+        "token_ttl": {
+          "type": "string",
+          "description": "Overrides the default IdP token time-to-live. Accepts Go duration syntax: a sequence of decimal numbers with unit suffixes (e.g. \"10m\" for 10 minutes, \"1h\" for 1 hour, \"30s\" for 30 seconds, \"1h30m\" for 1 hour 30 minutes).",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|\u00b5s|ms|s|m|h))+$",
+          "examples": ["10m", "1h", "30s", "1h30m", "24h"]
+        },
+        "default_actions": {
+          "type": "array",
+          "description": "Overrides the actions applied to all auto-generated subject mappings. Default: [\"read\", \"create\"].",
+          "items": {
+            "type": "string",
+            "description": "An action identifier (e.g. \"read\", \"create\", \"update\", \"delete\").",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "default": ["read", "create"],
+          "examples": [
+            ["read", "create"],
+            ["read", "create", "update", "delete"],
+            ["read"]
+          ]
+        }
+      },
+      "examples": [
+        {
+          "token_ttl": "1h",
+          "default_actions": ["read", "create", "update"]
+        }
+      ]
+    },
+    "Sealed": {
+      "type": "object",
+      "description": "Contains age-encrypted key material. Supports two modes: SSH key mode (recommended) where keys are encrypted to an SSH public key, and passphrase mode where keys are encrypted with a passphrase-derived key via scrypt. Present only in sealed bundles.",
+      "required": ["kas_keys", "idp_key"],
+      "additionalProperties": false,
+      "properties": {
+        "kas_keys": {
+          "type": "string",
+          "description": "Age-encrypted RSA and EC private keys for the Key Access Server (KAS). Encrypted using either an SSH public key or a passphrase. Decrypted at boot.",
+          "minLength": 1,
+          "examples": ["age1placeholder-encrypted-kas-keys-would-go-here"]
+        },
+        "idp_key": {
+          "type": "string",
+          "description": "Age-encrypted private key used by the built-in IdP (idplite) to sign JWTs. Encrypted using the same method as kas_keys.",
+          "minLength": 1,
+          "examples": ["age1placeholder-encrypted-idp-key-would-go-here"]
+        },
+        "fingerprint": {
+          "type": "string",
+          "description": "SSH public key fingerprint (e.g. \"SHA256:xxxx\") identifying which SSH key was used to encrypt the keys. Present only in SSH key mode. Empty or omitted in passphrase mode.",
+          "pattern": "^SHA256:[A-Za-z0-9+/=]{43}$",
+          "examples": ["SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        },
+        "method": {
+          "type": "string",
+          "description": "Sealing method. \"ssh\" (default) means keys are encrypted to an SSH public key. \"passphrase\" means keys are encrypted with a passphrase-derived key via scrypt. Omitted defaults to \"ssh\".",
+          "enum": ["ssh", "passphrase"],
+          "default": "ssh"
+        }
+      },
+      "if": {
+        "properties": { "method": { "const": "passphrase" } }
+      },
+      "then": {
+        "description": "In passphrase mode, fingerprint is not required."
+      },
+      "else": {
+        "required": ["fingerprint"],
+        "description": "In SSH key mode, fingerprint is required to identify the unsealing key."
+      }
+    }
+  },
+  "examples": [
+    {
+      "attributes": [
+        {
+          "name": "classification_level",
+          "rule": "hierarchy",
+          "values": ["TOP_SECRET", "SECRET", "CONFIDENTIAL", "UNCLASSIFIED"]
+        }
+      ],
+      "identities": {
+        "alice": {
+          "classification_level": "TOP_SECRET"
+        },
+        "bob": {
+          "classification_level": "SECRET"
+        }
+      }
+    },
+    {
+      "version": 1,
+      "namespace": "example.org",
+      "attributes": [
+        {
+          "name": "classification_level",
+          "rule": "hierarchy",
+          "values": ["TOP_SECRET", "SECRET", "CONFIDENTIAL", "UNCLASSIFIED"]
+        },
+        {
+          "name": "sci_control_system",
+          "rule": "allOf",
+          "values": ["SI", "HCS", "TK"]
+        },
+        {
+          "name": "releasable_to",
+          "rule": "allOf",
+          "values": ["USA", "GBR", "CAN", "AUS", "NZL"]
+        }
+      ],
+      "identities": {
+        "alice": {
+          "classification_level": "TOP_SECRET",
+          "sci_control_system": ["SI", "HCS", "TK"],
+          "releasable_to": ["USA", "GBR", "CAN", "AUS", "NZL"],
+          "admin": true
+        },
+        "bob": {
+          "classification_level": "SECRET",
+          "releasable_to": ["USA"]
+        }
+      },
+      "options": {
+        "token_ttl": "1h",
+        "default_actions": ["read", "create"]
+      }
+    }
+  ]
+}
