@@ -1,0 +1,48 @@
+{
+  "namespace": "healthcare.local",
+  "attributes": [
+    {
+      "name": "data_sensitivity",
+      "rule": "hierarchy",
+      "values": ["restricted", "confidential", "internal", "public"]
+    },
+    {
+      "name": "hipaa_role",
+      "rule": "anyOf",
+      "values": ["treating_physician", "nurse", "lab_technician", "billing", "admin", "researcher"]
+    },
+    {
+      "name": "consent_purpose",
+      "rule": "allOf",
+      "values": ["treatment", "payment", "operations", "research"]
+    }
+  ],
+  "identities": {
+    "dr-smith": {
+      "admin": true,
+      "data_sensitivity": "restricted",
+      "hipaa_role": ["treating_physician", "admin"],
+      "consent_purpose": ["treatment", "payment", "operations", "research"]
+    },
+    "nurse-jones": {
+      "data_sensitivity": "confidential",
+      "hipaa_role": ["nurse"],
+      "consent_purpose": ["treatment"]
+    },
+    "lab-tech": {
+      "data_sensitivity": "confidential",
+      "hipaa_role": ["lab_technician"],
+      "consent_purpose": ["treatment", "operations"]
+    },
+    "billing-dept": {
+      "data_sensitivity": "internal",
+      "hipaa_role": ["billing"],
+      "consent_purpose": ["payment"]
+    },
+    "researcher": {
+      "data_sensitivity": "internal",
+      "hipaa_role": ["researcher"],
+      "consent_purpose": ["research"]
+    }
+  }
+}

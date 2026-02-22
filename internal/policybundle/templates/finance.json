@@ -1,0 +1,48 @@
+{
+  "namespace": "finance.local",
+  "attributes": [
+    {
+      "name": "classification",
+      "rule": "hierarchy",
+      "values": ["material_nonpublic", "confidential", "internal", "public"]
+    },
+    {
+      "name": "regulatory_scope",
+      "rule": "allOf",
+      "values": ["sox", "gdpr", "pci_dss", "ccpa"]
+    },
+    {
+      "name": "department",
+      "rule": "anyOf",
+      "values": ["trading", "compliance", "risk", "audit", "legal", "it"]
+    }
+  ],
+  "identities": {
+    "cfo": {
+      "admin": true,
+      "classification": "material_nonpublic",
+      "regulatory_scope": ["sox", "gdpr", "pci_dss", "ccpa"],
+      "department": ["trading", "compliance", "risk", "audit", "legal"]
+    },
+    "trader": {
+      "classification": "material_nonpublic",
+      "regulatory_scope": ["sox"],
+      "department": ["trading"]
+    },
+    "compliance-officer": {
+      "classification": "confidential",
+      "regulatory_scope": ["sox", "gdpr", "pci_dss", "ccpa"],
+      "department": ["compliance", "audit", "legal"]
+    },
+    "risk-analyst": {
+      "classification": "confidential",
+      "regulatory_scope": ["sox"],
+      "department": ["risk"]
+    },
+    "auditor": {
+      "classification": "internal",
+      "regulatory_scope": ["sox", "gdpr"],
+      "department": ["audit"]
+    }
+  }
+}

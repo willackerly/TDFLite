@@ -1,0 +1,72 @@
+{
+  "namespace": "defense.local",
+  "attributes": [
+    {
+      "name": "classification",
+      "rule": "hierarchy",
+      "values": ["TOP_SECRET", "SECRET", "CONFIDENTIAL", "CUI", "UNCLASSIFIED"]
+    },
+    {
+      "name": "sci_compartment",
+      "rule": "allOf",
+      "values": ["SI", "TK", "HCS", "GAMMA", "ECI"]
+    },
+    {
+      "name": "sap_program",
+      "rule": "allOf",
+      "values": ["WASP", "COBALT", "RAVEN", "TALON"]
+    },
+    {
+      "name": "releasability",
+      "rule": "allOf",
+      "values": ["USA", "GBR", "CAN", "AUS", "NZL", "FVEY"]
+    },
+    {
+      "name": "handling_caveat",
+      "rule": "allOf",
+      "values": ["NOFORN", "ORCON", "REL_TO", "PROPIN", "FOUO"]
+    }
+  ],
+  "identities": {
+    "senior-analyst": {
+      "admin": true,
+      "classification": "TOP_SECRET",
+      "sci_compartment": ["SI", "TK", "HCS", "GAMMA", "ECI"],
+      "sap_program": ["WASP", "COBALT", "RAVEN", "TALON"],
+      "releasability": ["USA", "GBR", "CAN", "AUS", "NZL", "FVEY"],
+      "handling_caveat": ["NOFORN", "ORCON", "REL_TO", "PROPIN", "FOUO"]
+    },
+    "sigint-officer": {
+      "classification": "TOP_SECRET",
+      "sci_compartment": ["SI"],
+      "releasability": ["USA"],
+      "handling_caveat": ["NOFORN"]
+    },
+    "humint-officer": {
+      "classification": "TOP_SECRET",
+      "sci_compartment": ["HCS"],
+      "releasability": ["USA", "GBR"],
+      "handling_caveat": ["NOFORN", "ORCON"]
+    },
+    "allied-liaison": {
+      "classification": "SECRET",
+      "releasability": ["USA", "GBR", "CAN", "AUS", "NZL", "FVEY"],
+      "handling_caveat": ["REL_TO"]
+    },
+    "contractor": {
+      "classification": "SECRET",
+      "releasability": ["USA"],
+      "handling_caveat": ["FOUO"]
+    },
+    "junior-analyst": {
+      "classification": "CONFIDENTIAL",
+      "releasability": ["USA"],
+      "handling_caveat": ["FOUO"]
+    },
+    "public-affairs": {
+      "classification": "CUI",
+      "releasability": ["USA"],
+      "handling_caveat": ["FOUO"]
+    }
+  }
+}
