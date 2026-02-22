@@ -14,7 +14,7 @@ All tasks done and verified end-to-end. Binary builds, all services start, healt
 - [x] 0f. Default config — tdflite.yaml in OpenTDF format
 - [x] 0g. main.go orchestrator + integration test
 
-## Phase 1: Sealed Policy Bundle (IN PROGRESS)
+## Phase 1: Sealed Policy Bundle — COMPLETE
 
 A single JSON file replaces all config, provisioning scripts, and manual setup. Combined with an SSH key, one file boots a fully configured TDFLite instance.
 
@@ -25,32 +25,51 @@ A single JSON file replaces all config, provisioning scripts, and manual setup. 
 - [x] Auto-provisioner: policy file to ConnectRPC calls
 - [x] Identity generator: policy identities to idplite format
 - [x] Wire into cmd/tdflite (`serve --policy` + `seal` + `rebind` commands)
-- [x] Integration tests: seal, sign, verify, unseal, provision (6 tests)
-- [ ] Live E2E test: seal → boot → encrypt → decrypt with otdfctl
+- [x] Integration tests (6 tests)
+- [x] Tamper detection tests (51 subtests — every field modification caught)
+- [x] Optional field propagation tests (9 tests)
+- [x] Stress tests (11 tests — large bundles, unicode, concurrency, rebind)
+- [x] Error path tests (35 tests — cross-mode, wrong keys, validation)
+- [x] Policy lifecycle macro test (6 phases, 122 assertions)
+- [x] Embedded policy templates (healthcare, finance, defense)
+- [x] `tdflite policy seal` command
+- [x] `tdflite policy rebind` command
 
-## Phase 2: SQLite Shim (Future)
+## Phase 2: Zero-Friction Experience (NEXT)
 
-- [ ] Replace embedded-postgres with `modernc.org/sqlite`
-- [ ] Implement pgx-to-SQLite bridge or rewrite DB layer
-- [ ] True single binary — no Postgres download on first run
-- [ ] Estimated effort: ~30-45 days
+### `tdflite up` — Interactive Cold Start
+- [ ] `tdflite up` command — interactive first-run guided setup
+- [ ] Template selector: healthcare, finance, defense (or custom)
+- [ ] Auto-generate SSH keypair if none exists
+- [ ] Auto-seal, auto-boot — zero manual steps
+- [ ] Graceful messaging: explain what's happening at each step
 
-## Phase 3: In-Memory Mode (Future)
+### Embed PostgreSQL Binary
+- [ ] Bundle Postgres binary via `//go:embed` (~30MB compressed)
+- [ ] Eliminate first-run internet download
+- [ ] Air-gap ready — zero internet dependencies
+- [ ] Fallback: if embedded binary present, use it; otherwise download as today
 
-- [ ] Add ephemeral in-memory mode for testing/demos
-- [ ] No persistence, fresh state on every start
-- [ ] Useful for CI/CD pipelines and SDK tests
+## Deferred
+
+### SQLite Shim — CONSIDERED, DEFERRED
+
+Replacing embedded-postgres with `modernc.org/sqlite` was considered but deferred:
+- **Effort:** ~30-45 days (SQL query compatibility, migration rewriting)
+- **Benefit:** Instant boot, smaller binary (~35MB total), true single-file
+- **Risk:** OpenTDF platform SQL queries are Postgres-specific; compatibility layer is substantial
+- **Decision:** Embedded Postgres with `//go:embed` achieves the "zero internet" goal at lower cost. SQLite remains a future optimization if binary size or boot time become priorities.
+
+### In-Memory Mode — CONSIDERED, DEFERRED
+
+Ephemeral mode for testing/CI. Deferred until SQLite shim exists (SQLite `:memory:` is the natural path).
 
 ## Enhancements
 
-- [ ] Test with `otdfctl` CLI — verify full SDK compatibility
-- [ ] Add `tdflite init` command for first-run setup
+- [ ] Test with `otdfctl` CLI — live E2E: seal → boot → encrypt → decrypt
 - [ ] Add `--log-level` flag
 - [ ] Add `--log-format json` flag
-- [ ] Consider making default port configurable via env var
 - [ ] KAS registry auto-registration (avoid "no rows" warning on startup)
-- [x] `tdflite policy seal` command
-- [x] `tdflite policy rebind` command
 
 ## Code Debt
 
