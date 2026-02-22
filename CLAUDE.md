@@ -8,6 +8,17 @@ A **thin wrapper binary** around the real [OpenTDF platform](https://github.com/
 
 **Strategy:** Wrap, don't rewrite. See `docs/ARCHITECTURE.md` for full details.
 
+## Core Principle: Document Everything Non-Obvious
+
+**If something isn't immediately easy to guess, add it to `docs/IMPROVEMENTS.md` as a documentation improvement recommendation.** This includes:
+- Platform behaviors discovered through trial and error (e.g., casbin role naming conventions)
+- Config fields whose purpose or format isn't self-evident
+- Error messages that are misleading or under-documented
+- Gotchas, implicit dependencies, or undocumented prerequisites
+- Anything a future user would have to reverse-engineer from source code
+
+The goal: future users never have to guess. They get educated on everything they need. This applies to both TDFLite docs and recommendations for upstream OpenTDF docs.
+
 ## Cold Start (New Agent?)
 
 **Read in order (5 min total):**
@@ -18,6 +29,25 @@ A **thin wrapper binary** around the real [OpenTDF platform](https://github.com/
 **Then deep dive:**
 4. `docs/ARCHITECTURE.md` → full architecture plan, component specs, config format
 5. `AGENTS.md` → norms, workstreams, doc maintenance policy
+
+## Shell Rules
+
+**NEVER use `$()` command substitution in Bash tool calls.** It requires extra approval and slows everything down. Use pipes, temp files, or write small scripts instead.
+
+**NEVER use newlines in Bash tool calls.** Multi-line commands require manual approval. Use `&&` or `;` to chain commands on one line, or write a script file and run it.
+
+**NEVER use `>` redirection in Bash tool calls.** It requires extra approval. Write files using the Write tool, or use `tee` piped from a command, or write a script.
+
+**NEVER use `&` in Bash tool calls.** It triggers shell operator approval. Use the `run_in_background` parameter on the Bash tool instead.
+
+- BAD: `kill $(lsof -ti :9090)` → GOOD: `lsof -ti :9090 | xargs kill`
+- BAD: `echo "data" > /tmp/file.txt` → GOOD: use Write tool or a script
+- BAD: `./server &` → GOOD: use `run_in_background: true` parameter
+- BAD: `TOKEN=$(curl ... | jq -r '.access_token')`
+- GOOD: `curl ... | jq -r '.access_token' > /tmp/token.txt`
+- BAD: Multi-line command with newlines
+- GOOD: `cmd1 && cmd2 && cmd3` on one line
+- GOOD: Write a script to /tmp and run it with `bash /tmp/script.sh`
 
 ## Commands
 

@@ -148,35 +148,35 @@ ATTR_BASE="https://${NAMESPACE}/attr"
 
 echo "  Encrypting TOP_SECRET document..."
 encrypt_file "$TMPDIR/ts.tdf" "TOP SECRET DATA - Eyes Only" \
-  "${ATTR_BASE}/classification_level/value/TOP_SECRET"
+  "${ATTR_BASE}/classification_level/value/top_secret"
 
 echo "  Encrypting SECRET document..."
 encrypt_file "$TMPDIR/s.tdf" "SECRET DATA - Limited Distribution" \
-  "${ATTR_BASE}/classification_level/value/SECRET"
+  "${ATTR_BASE}/classification_level/value/secret"
 
 echo "  Encrypting CONFIDENTIAL document..."
 encrypt_file "$TMPDIR/c.tdf" "CONFIDENTIAL DATA - Internal Use" \
-  "${ATTR_BASE}/classification_level/value/CONFIDENTIAL"
+  "${ATTR_BASE}/classification_level/value/confidential"
 
 echo "  Encrypting UNCLASSIFIED document..."
 encrypt_file "$TMPDIR/u.tdf" "UNCLASSIFIED DATA - Public Release" \
-  "${ATTR_BASE}/classification_level/value/UNCLASSIFIED"
+  "${ATTR_BASE}/classification_level/value/unclassified"
 
 echo "  Encrypting TS/SCI document (requires SCI=SI)..."
 encrypt_file "$TMPDIR/ts-sci.tdf" "TS/SCI DATA - Compartmented" \
-  "${ATTR_BASE}/classification_level/value/TOP_SECRET" \
-  "${ATTR_BASE}/sci_control_system/value/SI"
+  "${ATTR_BASE}/classification_level/value/top_secret" \
+  "${ATTR_BASE}/sci_control_system/value/si"
 
 echo "  Encrypting SECRET/REL USA document..."
 encrypt_file "$TMPDIR/s-usa.tdf" "SECRET REL USA - US Only" \
-  "${ATTR_BASE}/classification_level/value/SECRET" \
-  "${ATTR_BASE}/releasable_to/value/USA"
+  "${ATTR_BASE}/classification_level/value/secret" \
+  "${ATTR_BASE}/releasable_to/value/usa"
 
 echo "  Encrypting SECRET/REL FVEY document..."
 encrypt_file "$TMPDIR/s-fvey.tdf" "SECRET REL FVEY - Five Eyes" \
-  "${ATTR_BASE}/classification_level/value/SECRET" \
-  "${ATTR_BASE}/releasable_to/value/USA" \
-  "${ATTR_BASE}/releasable_to/value/GBR"
+  "${ATTR_BASE}/classification_level/value/secret" \
+  "${ATTR_BASE}/releasable_to/value/usa" \
+  "${ATTR_BASE}/releasable_to/value/gbr"
 
 echo ""
 echo "--- Running classification hierarchy tests ---"

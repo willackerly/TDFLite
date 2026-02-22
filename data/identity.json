@@ -6,7 +6,7 @@
       "client_id": "admin-client",
       "client_secret": "admin-secret",
       "subject_id": "00000000-0000-0000-0000-000000000001",
-      "roles": ["admin", "standard"]
+      "roles": ["opentdf-admin", "opentdf-standard"]
     },
     {
       "username": "alice",
@@ -14,7 +14,7 @@
       "client_id": "alice-client",
       "client_secret": "alice-secret",
       "subject_id": "00000000-0000-0000-0000-000000000010",
-      "roles": ["standard"],
+      "roles": ["opentdf-standard"],
       "custom_claims": {
         "classification_level": "TOP_SECRET",
         "sci_control_system": ["SI", "HCS", "TK"],
@@ -30,7 +30,7 @@
       "client_id": "bob-client",
       "client_secret": "bob-secret",
       "subject_id": "00000000-0000-0000-0000-000000000011",
-      "roles": ["standard"],
+      "roles": ["opentdf-standard"],
       "custom_claims": {
         "classification_level": "TOP_SECRET",
         "sci_control_system": [],
@@ -46,7 +46,7 @@
       "client_id": "carol-client",
       "client_secret": "carol-secret",
       "subject_id": "00000000-0000-0000-0000-000000000012",
-      "roles": ["standard"],
+      "roles": ["opentdf-standard"],
       "custom_claims": {
         "classification_level": "SECRET",
         "sci_control_system": [],
@@ -62,7 +62,7 @@
       "client_id": "dave-client",
       "client_secret": "dave-secret",
       "subject_id": "00000000-0000-0000-0000-000000000013",
-      "roles": ["standard"],
+      "roles": ["opentdf-standard"],
       "custom_claims": {
         "classification_level": "CONFIDENTIAL",
         "sci_control_system": [],
@@ -78,7 +78,7 @@
       "client_id": "eve-client",
       "client_secret": "eve-secret",
       "subject_id": "00000000-0000-0000-0000-000000000014",
-      "roles": ["standard"],
+      "roles": ["opentdf-standard"],
       "custom_claims": {
         "classification_level": "UNCLASSIFIED",
         "sci_control_system": [],
@@ -94,13 +94,13 @@
       "client_id": "opentdf-sdk",
       "client_secret": "secret",
       "subject_id": "00000000-0000-0000-0000-000000000002",
-      "roles": ["standard"]
+      "roles": ["opentdf-standard"]
     },
     {
       "client_id": "opentdf",
       "client_secret": "secret",
       "subject_id": "00000000-0000-0000-0000-000000000003",
-      "roles": ["admin", "standard"]
+      "roles": ["opentdf-admin", "opentdf-standard"]
     }
   ]
 }

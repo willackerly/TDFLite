@@ -33,7 +33,7 @@ func testServer(t *testing.T) (*Server, string) {
 				"client_id": "admin-client",
 				"client_secret": "admin-secret",
 				"subject_id": "00000000-0000-0000-0000-000000000001",
-				"roles": ["admin", "standard"]
+				"roles": ["opentdf-admin", "opentdf-standard"]
 			}
 		],
 		"clients": [
@@ -41,13 +41,13 @@ func testServer(t *testing.T) (*Server, string) {
 				"client_id": "opentdf-sdk",
 				"client_secret": "secret",
 				"subject_id": "00000000-0000-0000-0000-000000000002",
-				"roles": ["standard"]
+				"roles": ["opentdf-standard"]
 			},
 			{
 				"client_id": "opentdf",
 				"client_secret": "secret",
 				"subject_id": "00000000-0000-0000-0000-000000000003",
-				"roles": ["admin", "standard"]
+				"roles": ["opentdf-admin", "opentdf-standard"]
 			}
 		]
 	}`
@@ -408,19 +408,19 @@ func TestTokenClaims(t *testing.T) {
 		t.Fatal("expected non-empty roles in realm_access")
 	}
 
-	// opentdf has admin and standard roles.
+	// opentdf has opentdf-admin and opentdf-standard roles.
 	foundAdmin := false
 	foundStandard := false
 	for _, r := range roles {
 		switch r.(string) {
-		case "admin":
+		case "opentdf-admin":
 			foundAdmin = true
-		case "standard":
+		case "opentdf-standard":
 			foundStandard = true
 		}
 	}
 	if !foundAdmin || !foundStandard {
-		t.Errorf("expected admin and standard roles, got %v", roles)
+		t.Errorf("expected opentdf-admin and opentdf-standard roles, got %v", roles)
 	}
 }
 
@@ -555,7 +555,7 @@ func TestAudienceConfigOverride(t *testing.T) {
 				"client_id": "test-client",
 				"client_secret": "secret",
 				"subject_id": "00000000-0000-0000-0000-000000000001",
-				"roles": ["standard"]
+				"roles": ["opentdf-standard"]
 			}
 		]
 	}`
@@ -626,7 +626,7 @@ func TestCustomClaimsInToken(t *testing.T) {
 				"client_id": "alice",
 				"client_secret": "secret",
 				"subject_id": "00000000-0000-0000-0000-000000000010",
-				"roles": ["standard"],
+				"roles": ["opentdf-standard"],
 				"custom_claims": {
 					"classification_level": "TOP_SECRET",
 					"sci_control_system": ["SI", "HCS", "TK"],
