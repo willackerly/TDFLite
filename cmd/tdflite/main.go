@@ -3,6 +3,7 @@
 //
 // Usage:
 //
+//	tdflite up [--template healthcare|finance|defense] [--ssh-key ~/.ssh/id_ed25519]
 //	tdflite serve [--config path/to/config.yaml] [--data-dir ./data]
 //	tdflite policy seal --policy policy.json [--ssh-key ~/.ssh/id_ed25519.pub]
 //	tdflite policy rebind --policy policy.sealed.json --old-key ... --new-key ...
@@ -12,7 +13,10 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -20,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -29,7 +34,10 @@ import (
 	"github.com/willackerly/TDFLite/internal/keygen"
 	"github.com/willackerly/TDFLite/internal/loader"
 	"github.com/willackerly/TDFLite/internal/policybundle"
+	"github.com/willackerly/TDFLite/internal/policybundle/templates"
 	"github.com/willackerly/TDFLite/internal/provision"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/opentdf/platform/service/pkg/server"
 )
@@ -43,6 +51,11 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "up":
+		if err := runUp(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "serve":
 		if err := runServe(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -79,6 +92,209 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// up — interactive cold start wizard
+// ---------------------------------------------------------------------------
+
+func runUp(args []string) error {
+	fs := flag.NewFlagSet("up", flag.ExitOnError)
+	templateFlag := fs.String("template", "", "template name (healthcare, finance, defense) or path to JSON file")
+	sshKeyFlag := fs.String("ssh-key", "", "path to SSH private key (default: ~/.ssh/id_ed25519)")
+	dataDirFlag := fs.String("data-dir", "data", "data directory")
+	portFlag := fs.Int("port", 8080, "platform port")
+	outputFlag := fs.String("output", "policy.sealed.json", "output path for sealed bundle")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	// Step 1: Welcome banner.
+	fmt.Println()
+	fmt.Println("TDFLite — Zero-Infrastructure Data Protection")
+	fmt.Println()
+	fmt.Println("This wizard will get you running in under 60 seconds.")
+	fmt.Println("No Docker. No Keycloak. One file + your SSH key.")
+	fmt.Println()
+
+	// Step 2: SSH key detection / generation.
+	privKeyPath := *sshKeyFlag
+	if privKeyPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("finding home directory: %w", err)
+		}
+		privKeyPath = filepath.Join(home, ".ssh", "id_ed25519")
+	}
+	pubKeyPath := privKeyPath + ".pub"
+
+	privExists := fileExists(privKeyPath)
+	pubExists := fileExists(pubKeyPath)
+
+	if privExists && pubExists {
+		fmt.Printf("Found SSH key: %s\n", privKeyPath)
+	} else {
+		fmt.Printf("No SSH key found at %s — generating one...\n", privKeyPath)
+		if err := generateSSHKeyPair(privKeyPath, pubKeyPath); err != nil {
+			return fmt.Errorf("generating SSH keypair: %w", err)
+		}
+		fmt.Printf("Generated new SSH keypair: %s\n", privKeyPath)
+	}
+	fmt.Println()
+
+	// Step 3: Template selection.
+	var bundle *policybundle.Bundle
+
+	if *templateFlag != "" {
+		// Non-interactive: use the flag value.
+		var err error
+		bundle, err = loadTemplateOrFile(*templateFlag)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Interactive: prompt the user.
+		available := templates.Available()
+		descriptions := templates.Descriptions()
+
+		fmt.Println("Choose a policy template:")
+		fmt.Println()
+		for i, name := range available {
+			desc := descriptions[name]
+			// Pad the name for alignment.
+			label := strings.Title(name) //nolint:staticcheck
+			fmt.Printf("  [%d] %-12s — %s\n", i+1, label, desc)
+		}
+		fmt.Printf("  [%d] %-12s — Load from a JSON file\n", len(available)+1, "Custom")
+		fmt.Println()
+		fmt.Printf("Enter choice [1-%d]: ", len(available)+1)
+
+		line, err := stdinReader.ReadString('\n')
+		if err != nil && line == "" {
+			return fmt.Errorf("reading choice: %w", err)
+		}
+		line = strings.TrimSpace(line)
+
+		choice, err := strconv.Atoi(line)
+		if err != nil || choice < 1 || choice > len(available)+1 {
+			return fmt.Errorf("invalid choice: %q (expected 1-%d)", line, len(available)+1)
+		}
+
+		if choice <= len(available) {
+			// Built-in template.
+			name := available[choice-1]
+			fmt.Printf("Loading template: %s\n", name)
+			bundle, err = templates.Load(name)
+			if err != nil {
+				return fmt.Errorf("loading template %q: %w", name, err)
+			}
+		} else {
+			// Custom file.
+			fmt.Print("Path to policy JSON file: ")
+			fileLine, err := stdinReader.ReadString('\n')
+			if err != nil && fileLine == "" {
+				return fmt.Errorf("reading file path: %w", err)
+			}
+			filePath := strings.TrimSpace(fileLine)
+			bundle, err = policybundle.LoadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("loading custom policy: %w", err)
+			}
+		}
+	}
+
+	fmt.Printf("Policy: %d attributes, %d identities\n", len(bundle.Attributes), len(bundle.Identities))
+	fmt.Println()
+
+	// Step 4: Seal the bundle.
+	fmt.Println("Sealing policy bundle...")
+	if err := policybundle.SealWithSSHKey(bundle, pubKeyPath); err != nil {
+		return fmt.Errorf("sealing with SSH key: %w", err)
+	}
+	if err := policybundle.SignBundle(bundle, privKeyPath); err != nil {
+		return fmt.Errorf("signing bundle: %w", err)
+	}
+
+	// Write sealed bundle to disk.
+	data, err := json.MarshalIndent(bundle, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling sealed bundle: %w", err)
+	}
+	if err := os.WriteFile(*outputFlag, append(data, '\n'), 0600); err != nil {
+		return fmt.Errorf("writing sealed bundle: %w", err)
+	}
+
+	fmt.Printf("Sealed policy bundle: %s (fingerprint: %s)\n", *outputFlag, bundle.Sealed.Fingerprint)
+	fmt.Println()
+
+	// Step 5: Boot the platform.
+	fmt.Println("Starting TDFLite platform...")
+	fmt.Println()
+
+	serveArgs := []string{
+		"--policy", *outputFlag,
+		"--key", privKeyPath,
+		"--data-dir", *dataDirFlag,
+		"--port", strconv.Itoa(*portFlag),
+	}
+	return runServe(serveArgs)
+}
+
+// loadTemplateOrFile loads a policy bundle from a named template or a file path.
+func loadTemplateOrFile(nameOrPath string) (*policybundle.Bundle, error) {
+	// Check if it's a known template name.
+	for _, t := range templates.Available() {
+		if strings.EqualFold(nameOrPath, t) {
+			fmt.Printf("Loading template: %s\n", t)
+			return templates.Load(t)
+		}
+	}
+
+	// Otherwise, treat as a file path.
+	fmt.Printf("Loading custom policy: %s\n", nameOrPath)
+	return policybundle.LoadFile(nameOrPath)
+}
+
+// generateSSHKeyPair creates an Ed25519 SSH keypair and writes it to disk.
+// Creates the parent directory with 0700 permissions if it doesn't exist.
+func generateSSHKeyPair(privPath, pubPath string) error {
+	// Ensure the directory exists.
+	dir := filepath.Dir(privPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("creating SSH directory %s: %w", dir, err)
+	}
+
+	// Generate Ed25519 keypair.
+	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("generating ed25519 key: %w", err)
+	}
+
+	// Marshal private key to OpenSSH PEM format.
+	privPEM, err := ssh.MarshalPrivateKey(privKey, "")
+	if err != nil {
+		return fmt.Errorf("marshaling private key: %w", err)
+	}
+	if err := os.WriteFile(privPath, pem.EncodeToMemory(privPEM), 0600); err != nil {
+		return fmt.Errorf("writing private key: %w", err)
+	}
+
+	// Marshal public key to authorized_keys format.
+	sshPub, err := ssh.NewPublicKey(pubKey)
+	if err != nil {
+		return fmt.Errorf("creating SSH public key: %w", err)
+	}
+	if err := os.WriteFile(pubPath, ssh.MarshalAuthorizedKey(sshPub), 0644); err != nil {
+		return fmt.Errorf("writing public key: %w", err)
+	}
+
+	return nil
+}
+
+// fileExists reports whether the named file exists and is a regular file.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // ---------------------------------------------------------------------------
@@ -521,11 +737,19 @@ Usage:
   tdflite <command> [flags]
 
 Commands:
+  up             Interactive cold start — choose a template, seal, and boot
   serve          Start TDFLite (embedded-postgres + idplite + OpenTDF platform)
   policy seal    Seal a plain policy bundle with SSH key or passphrase
   policy rebind  Re-encrypt a sealed bundle with a different SSH key
   version        Print version information
   help           Show this help
+
+Flags (up):
+  --template    Template name (healthcare, finance, defense) or path to JSON file
+  --ssh-key     Path to SSH private key (default: ~/.ssh/id_ed25519)
+  --data-dir    Data directory (default: data)
+  --port        Platform port (default: 8080)
+  --output      Output path for sealed bundle (default: policy.sealed.json)
 
 Flags (serve):
   --config      Path to OpenTDF YAML config file (default: auto-generated)

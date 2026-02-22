@@ -79,6 +79,12 @@ func (s *Server) Start() error {
 		return fmt.Errorf("embeddedpg: creating cache directory: %w", err)
 	}
 
+	// Write any build-time-embedded Postgres tarball into the cache directory
+	// so the library finds it and skips downloading from the internet.
+	if err := PrepopulateCache(s.config.CachePath); err != nil {
+		return fmt.Errorf("embeddedpg: prepopulating cache: %w", err)
+	}
+
 	if err := s.pg.Start(); err != nil {
 		return fmt.Errorf("embeddedpg: starting postgres: %w", err)
 	}

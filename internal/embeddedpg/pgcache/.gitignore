@@ -1,0 +1,5 @@
+# Embedded PostgreSQL binary tarballs (~30MB each)
+# These are optionally placed here by scripts/fetch-postgres.sh
+# and embedded into the Go binary at build time via //go:embed.
+# Do NOT commit them to git.
+*.txz

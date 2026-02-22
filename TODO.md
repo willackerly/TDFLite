@@ -1,6 +1,6 @@
 # TODO
 
-**Last synced:** 2026-02-22
+**Last synced:** 2026-02-23
 
 ## Phase 0: Wrap-and-Shim — COMPLETE
 
@@ -35,20 +35,24 @@ A single JSON file replaces all config, provisioning scripts, and manual setup. 
 - [x] `tdflite policy seal` command
 - [x] `tdflite policy rebind` command
 
-## Phase 2: Zero-Friction Experience (NEXT)
+## Phase 2: Zero-Friction Experience — COMPLETE
 
 ### `tdflite up` — Interactive Cold Start
-- [ ] `tdflite up` command — interactive first-run guided setup
-- [ ] Template selector: healthcare, finance, defense (or custom)
-- [ ] Auto-generate SSH keypair if none exists
-- [ ] Auto-seal, auto-boot — zero manual steps
-- [ ] Graceful messaging: explain what's happening at each step
+- [x] `tdflite up` command — interactive first-run guided setup
+- [x] Template selector: healthcare, finance, defense (or custom JSON file)
+- [x] Auto-generate Ed25519 SSH keypair if none exists (~/.ssh/id_ed25519)
+- [x] Auto-seal, auto-boot — zero manual steps
+- [x] Graceful messaging: explain what's happening at each step
+- [x] Non-interactive mode: `tdflite up --template healthcare` (scriptable)
+- [x] Tests: SSH key gen, template→seal→verify flow, case-insensitive names (14 subtests)
 
 ### Embed PostgreSQL Binary
-- [ ] Bundle Postgres binary via `//go:embed` (~30MB compressed)
-- [ ] Eliminate first-run internet download
-- [ ] Air-gap ready — zero internet dependencies
-- [ ] Fallback: if embedded binary present, use it; otherwise download as today
+- [x] Bundle Postgres binary via `//go:embed all:pgcache` (~30MB compressed)
+- [x] PrepopulateCache writes embedded .txz to library cache dir
+- [x] Fallback: if embedded binary present, use it; otherwise download as today
+- [x] `scripts/fetch-postgres.sh` — build helper to download .txz for current platform
+- [x] Air-gap ready — `bash scripts/fetch-postgres.sh && go build` = zero internet at runtime
+- [x] Tests: no-op when empty, skip existing, idempotent calls (7 subtests)
 
 ## Deferred
 

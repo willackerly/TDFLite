@@ -13,6 +13,28 @@ eliminates all of that. One binary. One policy file. Your SSH key. That's it.
 ## Quick Start
 
 ```bash
+# One command. That's it.
+tdflite up
+```
+
+The `up` wizard:
+
+1. Finds your SSH key (or generates one)
+2. Lets you pick a template: **healthcare**, **finance**, or **defense**
+3. Seals the policy bundle with your SSH key
+4. Boots the full OpenTDF platform
+
+No config files. No provisioning scripts. No internet required (with embedded PG).
+
+### Or script it
+
+```bash
+tdflite up --template healthcare    # non-interactive mode
+```
+
+### Manual workflow
+
+```bash
 # 1. Write a policy file (who gets access to what)
 cat > policy.json << 'EOF'
 {
@@ -27,7 +49,7 @@ cat > policy.json << 'EOF'
 EOF
 
 # 2. Seal it with your SSH key (encrypts KAS keys, signs the file)
-tdflite seal --policy policy.json --ssh-key ~/.ssh/id_ed25519
+tdflite policy seal --policy policy.json --ssh-key ~/.ssh/id_ed25519.pub
 
 # 3. Boot the platform
 tdflite serve --policy policy.sealed.json --key ~/.ssh/id_ed25519
@@ -101,7 +123,7 @@ platform will ever make is derived from this file.
 ### What happens when you seal it
 
 ```bash
-tdflite seal --policy policy.json --ssh-key ~/.ssh/id_ed25519
+tdflite policy seal --policy policy.json --ssh-key ~/.ssh/id_ed25519.pub
 ```
 
 The `seal` command:
@@ -257,8 +279,9 @@ calls the platform's own `server.Start()`.
 ```
 
 **Embedded PostgreSQL** -- A real PostgreSQL instance (v16), downloaded and cached
-on first run. All 39+ OpenTDF database migrations run automatically. Data persists
-between restarts in the `data/` directory. No Docker involved.
+on first run (or bundled in the binary for air-gap deployments via
+`scripts/fetch-postgres.sh`). All 39+ OpenTDF database migrations run automatically.
+Data persists between restarts in the `data/` directory. No Docker involved.
 
 **idplite** -- A minimal OIDC-compliant identity provider (~550 lines of Go) that
 serves OpenID Connect discovery, JWKS, and token endpoints. Supports
@@ -274,21 +297,15 @@ authorization, and more. Full platform. Not a subset.
 
 ## Status
 
-**Phase 0: Wrap-and-Shim** -- Complete. The single binary boots embedded PostgreSQL,
-idplite, and the full OpenTDF platform. End-to-end verified: encrypt and decrypt
-operations work, all 17 services respond, 33+ unit tests pass.
-
-**Sealed Policy Bundle** -- Schema defined, validation implemented, seal/unseal and
-boot-time provisioning in active development.
+315 tests passing across 9 packages. All race-safe.
 
 ### Roadmap
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 0 | Wrap-and-shim: embedded Postgres + idplite + `server.Start()` | Complete |
-| Phase 0.5 | Sealed policy bundle: single-file policy + encrypted keys | In progress |
-| Phase 1 | SQLite shim: replace embedded Postgres with pure-Go SQLite | Future |
-| Phase 2 | In-memory mode: ephemeral instances for testing and CI | Future |
+| Phase 1 | Sealed policy bundle: single-file policy + encrypted keys + signatures | Complete |
+| Phase 2 | Zero-friction experience: `tdflite up` wizard + embedded PG binary | Complete |
 
 ---
 
@@ -309,7 +326,15 @@ go build -o tdflite ./cmd/tdflite
 ### Flags
 
 ```
-tdflite serve [flags]
+tdflite up [flags]                  # Interactive cold start
+
+  --template    Template name (healthcare, finance, defense) or path to JSON file
+  --ssh-key     Path to SSH private key (default: ~/.ssh/id_ed25519)
+  --data-dir    Data directory (default: ./data)
+  --port        Platform port (default: 8080)
+  --output      Output path for sealed bundle (default: policy.sealed.json)
+
+tdflite serve [flags]               # Start with existing sealed bundle
 
   --policy      Path to sealed policy bundle (default: none, uses legacy config)
   --key         Path to SSH private key for unsealing (default: ~/.ssh/id_ed25519)
@@ -318,6 +343,15 @@ tdflite serve [flags]
   --port        Platform server port (default: 8080)
   --pg-port     Embedded PostgreSQL port (default: 15432)
   --idp-port    Built-in OIDC IdP port (default: 15433)
+```
+
+### Air-Gap Build (Optional)
+
+Bundle the PostgreSQL binary so the resulting executable needs zero internet access:
+
+```bash
+bash scripts/fetch-postgres.sh      # downloads ~30MB PG binary
+go build -o tdflite ./cmd/tdflite   # embeds it into the binary
 ```
 
 ### Environment Variables
@@ -334,13 +368,17 @@ TDFLITE_LOG_LEVEL=info                  # debug, info, warn, error
 ## Project Structure
 
 ```
-cmd/tdflite/           Main binary: orchestrates startup sequence
+cmd/tdflite/           Main binary: up wizard, serve, seal, rebind
 internal/
   policybundle/        Sealed policy bundle schema + validation
+    templates/         Built-in templates (healthcare, finance, defense)
+  provision/           Auto-provisioner (ConnectRPC calls)
   idplite/             Built-in OIDC IdP (discovery, JWKS, tokens)
-  embeddedpg/          Embedded PostgreSQL lifecycle wrapper
+  embeddedpg/          Embedded PostgreSQL lifecycle + optional binary cache
   keygen/              KAS key pair generation (RSA + EC)
   loader/              OpenTDF config generator
+scripts/               Build helpers (fetch-postgres.sh)
+tests/                 Integration + stress + lifecycle tests
 config/                Default configuration
 data/                  Runtime state (keys, Postgres data, identities)
 docs/                  Architecture documentation
