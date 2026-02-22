@@ -20,12 +20,13 @@ A single JSON file replaces all config, provisioning scripts, and manual setup. 
 
 - [x] Define object contract (Go structs + JSON schema)
 - [x] Schema validation (attribute-identity cross-reference)
-- [ ] Seal/unseal with age library + SSH keys
-- [ ] Signature generation/verification
-- [ ] Auto-provisioner: policy file to ConnectRPC calls
-- [ ] Identity generator: policy identities to idplite format
-- [ ] Wire into cmd/tdflite (`serve --policy` + `seal` + `rebind` commands)
-- [ ] E2E test: seal, boot, encrypt, decrypt
+- [x] Seal/unseal with age library + SSH keys (+ passphrase mode)
+- [x] Signature generation/verification (Ed25519, RSA, ECDSA)
+- [x] Auto-provisioner: policy file to ConnectRPC calls
+- [x] Identity generator: policy identities to idplite format
+- [x] Wire into cmd/tdflite (`serve --policy` + `seal` + `rebind` commands)
+- [x] Integration tests: seal, sign, verify, unseal, provision (6 tests)
+- [ ] Live E2E test: seal → boot → encrypt → decrypt with otdfctl
 
 ## Phase 2: SQLite Shim (Future)
 
@@ -48,8 +49,8 @@ A single JSON file replaces all config, provisioning scripts, and manual setup. 
 - [ ] Add `--log-format json` flag
 - [ ] Consider making default port configurable via env var
 - [ ] KAS registry auto-registration (avoid "no rows" warning on startup)
-- [ ] `tdflite policy seal` command
-- [ ] `tdflite policy rebind` command
+- [x] `tdflite policy seal` command
+- [x] `tdflite policy rebind` command
 
 ## Code Debt
 

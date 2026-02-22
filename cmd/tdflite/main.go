@@ -4,17 +4,23 @@
 // Usage:
 //
 //	tdflite serve [--config path/to/config.yaml] [--data-dir ./data]
+//	tdflite policy seal --policy policy.json [--ssh-key ~/.ssh/id_ed25519.pub]
+//	tdflite policy rebind --policy policy.sealed.json --old-key ... --new-key ...
 //	tdflite version
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +28,8 @@ import (
 	"github.com/willackerly/TDFLite/internal/idplite"
 	"github.com/willackerly/TDFLite/internal/keygen"
 	"github.com/willackerly/TDFLite/internal/loader"
+	"github.com/willackerly/TDFLite/internal/policybundle"
+	"github.com/willackerly/TDFLite/internal/provision"
 
 	"github.com/opentdf/platform/service/pkg/server"
 )
@@ -40,6 +48,28 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "policy":
+		if len(os.Args) < 3 {
+			fmt.Fprintf(os.Stderr, "error: policy requires a subcommand (seal, rebind)\n")
+			printUsage()
+			os.Exit(1)
+		}
+		switch os.Args[2] {
+		case "seal":
+			if err := runPolicySeal(os.Args[3:]); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+		case "rebind":
+			if err := runPolicyRebind(os.Args[3:]); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "unknown policy subcommand: %s\n", os.Args[2])
+			printUsage()
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Printf("tdflite %s\n", version)
 	case "help", "--help", "-h":
@@ -51,6 +81,159 @@ func main() {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// policy seal
+// ---------------------------------------------------------------------------
+
+func runPolicySeal(args []string) error {
+	fs := flag.NewFlagSet("policy seal", flag.ExitOnError)
+	policyPath := fs.String("policy", "", "path to plain policy.json (required)")
+	sshKeyPath := fs.String("ssh-key", "", "path to SSH public key (default: ~/.ssh/id_ed25519.pub)")
+	usePassphrase := fs.Bool("passphrase", false, "use passphrase mode instead of SSH key")
+	outputPath := fs.String("output", "policy.sealed.json", "output path for sealed bundle")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if *policyPath == "" {
+		return fmt.Errorf("--policy is required")
+	}
+
+	// Load and validate the plain policy.
+	bundle, err := policybundle.LoadFile(*policyPath)
+	if err != nil {
+		return fmt.Errorf("loading policy: %w", err)
+	}
+	fmt.Printf("loaded policy: %d attributes, %d identities\n", len(bundle.Attributes), len(bundle.Identities))
+
+	if *usePassphrase {
+		// Passphrase mode: prompt for passphrase.
+		passphrase, err := readPassphrase("Enter passphrase for sealing: ")
+		if err != nil {
+			return fmt.Errorf("reading passphrase: %w", err)
+		}
+		confirm, err := readPassphrase("Confirm passphrase: ")
+		if err != nil {
+			return fmt.Errorf("reading passphrase confirmation: %w", err)
+		}
+		if passphrase != confirm {
+			return fmt.Errorf("passphrases do not match")
+		}
+
+		fmt.Println("sealing with passphrase...")
+		if err := policybundle.SealWithPassphrase(bundle, passphrase); err != nil {
+			return fmt.Errorf("sealing: %w", err)
+		}
+		if err := policybundle.SignBundlePassphrase(bundle); err != nil {
+			return fmt.Errorf("signing: %w", err)
+		}
+		fmt.Println("sealed with passphrase (SHA-256 tamper detection)")
+	} else {
+		// SSH key mode.
+		pubKeyPath := *sshKeyPath
+		if pubKeyPath == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("finding home directory: %w", err)
+			}
+			pubKeyPath = filepath.Join(home, ".ssh", "id_ed25519.pub")
+		}
+
+		// Derive private key path for signing (strip .pub).
+		privKeyPath := strings.TrimSuffix(pubKeyPath, ".pub")
+		if privKeyPath == pubKeyPath {
+			return fmt.Errorf("SSH key path %q does not end in .pub; cannot derive private key path for signing", pubKeyPath)
+		}
+
+		fmt.Printf("sealing with SSH key: %s\n", pubKeyPath)
+		if err := policybundle.SealWithSSHKey(bundle, pubKeyPath); err != nil {
+			return fmt.Errorf("sealing: %w", err)
+		}
+
+		if err := policybundle.SignBundle(bundle, privKeyPath); err != nil {
+			return fmt.Errorf("signing: %w", err)
+		}
+		fmt.Printf("sealed and signed (fingerprint: %s)\n", bundle.Sealed.Fingerprint)
+	}
+
+	// Write sealed bundle to output.
+	data, err := json.MarshalIndent(bundle, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling sealed bundle: %w", err)
+	}
+
+	if err := os.WriteFile(*outputPath, append(data, '\n'), 0600); err != nil {
+		return fmt.Errorf("writing sealed bundle: %w", err)
+	}
+
+	fmt.Printf("wrote sealed bundle to %s\n", *outputPath)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// policy rebind
+// ---------------------------------------------------------------------------
+
+func runPolicyRebind(args []string) error {
+	fs := flag.NewFlagSet("policy rebind", flag.ExitOnError)
+	policyPath := fs.String("policy", "", "path to sealed policy file (required)")
+	oldKeyPath := fs.String("old-key", "", "path to old SSH private key (required)")
+	newKeyPath := fs.String("new-key", "", "path to new SSH private key (required)")
+	outputPath := fs.String("output", "", "output path (default: overwrites input)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if *policyPath == "" {
+		return fmt.Errorf("--policy is required")
+	}
+	if *oldKeyPath == "" {
+		return fmt.Errorf("--old-key is required")
+	}
+	if *newKeyPath == "" {
+		return fmt.Errorf("--new-key is required")
+	}
+
+	outPath := *outputPath
+	if outPath == "" {
+		outPath = *policyPath
+	}
+
+	// Load the sealed bundle.
+	bundle, err := policybundle.LoadFile(*policyPath)
+	if err != nil {
+		return fmt.Errorf("loading sealed policy: %w", err)
+	}
+	if !bundle.IsSealed() {
+		return fmt.Errorf("policy file is not sealed")
+	}
+
+	fmt.Printf("rebinding sealed bundle from old key to new key...\n")
+	fmt.Printf("  old key: %s\n", *oldKeyPath)
+	fmt.Printf("  new key: %s\n", *newKeyPath)
+
+	if err := policybundle.RebindSSHKey(bundle, *oldKeyPath, *newKeyPath); err != nil {
+		return fmt.Errorf("rebinding: %w", err)
+	}
+
+	// Write output.
+	data, err := json.MarshalIndent(bundle, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling rebound bundle: %w", err)
+	}
+
+	if err := os.WriteFile(outPath, append(data, '\n'), 0600); err != nil {
+		return fmt.Errorf("writing rebound bundle: %w", err)
+	}
+
+	fmt.Printf("rebound bundle written to %s (fingerprint: %s)\n", outPath, bundle.Sealed.Fingerprint)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// serve
+// ---------------------------------------------------------------------------
+
 func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	configPath := fs.String("config", "", "path to config file (default: auto-generated)")
@@ -58,6 +241,9 @@ func runServe(args []string) error {
 	pgPort := fs.Int("pg-port", 15432, "embedded PostgreSQL port")
 	idpPort := fs.Int("idp-port", 15433, "built-in OIDC IdP port")
 	platformPort := fs.Int("port", 8080, "OpenTDF platform server port")
+	policyPath := fs.String("policy", "", "path to sealed policy bundle")
+	keyPath := fs.String("key", "", "path to SSH private key for unsealing (default: ~/.ssh/id_ed25519)")
+	usePassphrase := fs.Bool("passphrase", false, "use passphrase mode for unsealing")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -77,14 +263,102 @@ func runServe(args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Step 1: Generate KAS keys if needed.
-	logger.Info("ensuring KAS key pairs exist", "dir", *dataDir)
-	if err := keygen.EnsureKeys(*dataDir); err != nil {
-		return fmt.Errorf("generating KAS keys: %w", err)
-	}
-	logger.Info("KAS keys ready")
+	// If --policy is provided, unseal and extract keys from the policy bundle.
+	var bundle *policybundle.Bundle
+	if *policyPath != "" {
+		logger.Info("loading sealed policy bundle", "path", *policyPath)
+		var err error
+		bundle, err = policybundle.LoadFile(*policyPath)
+		if err != nil {
+			return fmt.Errorf("loading policy bundle: %w", err)
+		}
+		if !bundle.IsSealed() {
+			return fmt.Errorf("policy file %s is not sealed", *policyPath)
+		}
 
-	// Step 2: Start embedded PostgreSQL.
+		// Verify signature.
+		if *usePassphrase {
+			logger.Info("verifying passphrase signature")
+			if err := policybundle.VerifyPassphraseSignature(bundle); err != nil {
+				return fmt.Errorf("signature verification failed: %w", err)
+			}
+		} else {
+			sshPrivKey := *keyPath
+			if sshPrivKey == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("finding home directory: %w", err)
+				}
+				sshPrivKey = filepath.Join(home, ".ssh", "id_ed25519")
+			}
+			sshPubKey := sshPrivKey + ".pub"
+
+			logger.Info("verifying SSH signature", "pub_key", sshPubKey)
+			if err := policybundle.VerifySignature(bundle, sshPubKey); err != nil {
+				return fmt.Errorf("signature verification failed: %w", err)
+			}
+		}
+		logger.Info("signature verified")
+
+		// Unseal to get KAS keys.
+		var keys policybundle.KASKeys
+		if *usePassphrase {
+			passphrase, err := readPassphrase("Enter passphrase to unseal: ")
+			if err != nil {
+				return fmt.Errorf("reading passphrase: %w", err)
+			}
+			keys, err = policybundle.UnsealWithPassphrase(bundle, passphrase)
+			if err != nil {
+				return fmt.Errorf("unsealing with passphrase: %w", err)
+			}
+		} else {
+			sshPrivKey := *keyPath
+			if sshPrivKey == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("finding home directory: %w", err)
+				}
+				sshPrivKey = filepath.Join(home, ".ssh", "id_ed25519")
+			}
+
+			logger.Info("unsealing with SSH key", "key", sshPrivKey)
+			var err error
+			keys, err = policybundle.UnsealWithSSHKey(bundle, sshPrivKey)
+			if err != nil {
+				return fmt.Errorf("unsealing with SSH key: %w", err)
+			}
+		}
+		logger.Info("bundle unsealed, writing keys to data dir")
+
+		// Write KAS keys and IdP key to data dir.
+		if err := policybundle.WriteKeysToDisk(keys, *dataDir); err != nil {
+			return fmt.Errorf("writing keys to disk: %w", err)
+		}
+
+		// Generate identities from the bundle and write to data dir.
+		identities, err := policybundle.GenerateIdentities(bundle)
+		if err != nil {
+			return fmt.Errorf("generating identities: %w", err)
+		}
+		identityData, err := json.MarshalIndent(identities, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling identities: %w", err)
+		}
+		identityPath := filepath.Join(*dataDir, "identity.json")
+		if err := os.WriteFile(identityPath, identityData, 0600); err != nil {
+			return fmt.Errorf("writing identity file: %w", err)
+		}
+		logger.Info("keys and identities written", "identity_file", identityPath)
+	} else {
+		// No policy bundle — generate keys the traditional way.
+		logger.Info("ensuring KAS key pairs exist", "dir", *dataDir)
+		if err := keygen.EnsureKeys(*dataDir); err != nil {
+			return fmt.Errorf("generating KAS keys: %w", err)
+		}
+		logger.Info("KAS keys ready")
+	}
+
+	// Start embedded PostgreSQL.
 	pgCfg := embeddedpg.DefaultConfig()
 	pgCfg.Port = uint32(*pgPort)
 	pgCfg.DataPath = filepath.Join(*dataDir, "postgres")
@@ -103,7 +377,7 @@ func runServe(args []string) error {
 	}()
 	logger.Info("embedded PostgreSQL ready", "url", pg.ConnectionURL())
 
-	// Step 3: Start idplite OIDC IdP.
+	// Start idplite OIDC IdP.
 	idpCfg := idplite.Config{
 		Issuer:         fmt.Sprintf("http://localhost:%d", *idpPort),
 		Audience:       fmt.Sprintf("http://localhost:%d", *platformPort),
@@ -132,10 +406,9 @@ func runServe(args []string) error {
 	}()
 	logger.Info("idplite OIDC IdP ready", "addr", idp.Addr())
 
-	// Step 4: Generate OpenTDF platform config.
+	// Generate OpenTDF platform config.
 	cfgFile := *configPath
 	if cfgFile == "" {
-		// Generate a config file pointing at our embedded infrastructure.
 		loaderCfg := loader.DefaultConfig(*pgPort, *idpPort, *platformPort)
 
 		cfgFile = filepath.Join(*dataDir, "opentdf.yaml")
@@ -145,14 +418,22 @@ func runServe(args []string) error {
 		}
 	}
 
-	// Step 5: Start OpenTDF platform.
+	// If a policy bundle was loaded, start provisioning in background after
+	// the platform becomes healthy.
+	if bundle != nil {
+		idpURL := fmt.Sprintf("http://localhost:%d", *idpPort)
+		platformURL := fmt.Sprintf("http://localhost:%d", *platformPort)
+		provBundle := bundle
+		go func() {
+			provisionAfterHealthy(ctx, logger, platformURL, idpURL, provBundle, *platformPort)
+		}()
+	}
+
+	// Start OpenTDF platform (blocks until shutdown).
 	logger.Info("starting OpenTDF platform",
 		"config", cfgFile,
 		"port", *platformPort,
 	)
-
-	// server.Start() blocks until shutdown signal or error.
-	// It handles its own signal handling via WithWaitForShutdownSignal().
 	if err := server.Start(
 		server.WithConfigFile(cfgFile),
 		server.WithWaitForShutdownSignal(),
@@ -164,6 +445,75 @@ func runServe(args []string) error {
 	return nil
 }
 
+// provisionAfterHealthy waits for the platform health endpoint to respond,
+// then provisions policy from the bundle.
+func provisionAfterHealthy(ctx context.Context, logger *slog.Logger, platformURL, idpURL string, bundle *policybundle.Bundle, platformPort int) {
+	healthURL := fmt.Sprintf("http://localhost:%d/healthz", platformPort)
+
+	logger.Info("waiting for platform health check", "url", healthURL)
+	for i := 0; i < 120; i++ {
+		select {
+		case <-ctx.Done():
+			logger.Warn("context cancelled while waiting for health check")
+			return
+		default:
+		}
+
+		resp, err := http.Get(healthURL)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				logger.Info("platform is healthy, starting provisioning")
+				break
+			}
+		}
+		if i == 119 {
+			logger.Error("platform did not become healthy within 120 seconds, skipping provisioning")
+			return
+		}
+		time.Sleep(time.Second)
+	}
+
+	// Get admin auth token.
+	token, err := provision.GetAuthToken(ctx, idpURL)
+	if err != nil {
+		logger.Error("failed to get auth token for provisioning", "error", err)
+		return
+	}
+
+	// Provision the policy.
+	if err := provision.Provision(ctx, bundle, platformURL, token); err != nil {
+		logger.Error("provisioning failed", "error", err)
+		return
+	}
+
+	logger.Info("policy provisioned successfully")
+}
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+
+// stdinReader is a package-level buffered reader for stdin. Using a single
+// reader avoids the problem where multiple bufio.Scanner instances each
+// consume and buffer data independently, causing reads after the first to fail.
+var stdinReader = bufio.NewReader(os.Stdin)
+
+// readPassphrase reads a passphrase from stdin. Note: input is NOT hidden
+// from the terminal. For production use, consider golang.org/x/term.
+func readPassphrase(prompt string) (string, error) {
+	fmt.Fprint(os.Stderr, prompt)
+	line, err := stdinReader.ReadString('\n')
+	if err != nil && line == "" {
+		return "", fmt.Errorf("no input: %w", err)
+	}
+	return strings.TrimRight(line, "\r\n"), nil
+}
+
+// ---------------------------------------------------------------------------
+// usage
+// ---------------------------------------------------------------------------
+
 func printUsage() {
 	fmt.Println(`TDFLite - OpenTDF Platform, Zero Infrastructure
 
@@ -171,14 +521,31 @@ Usage:
   tdflite <command> [flags]
 
 Commands:
-  serve     Start TDFLite (embedded-postgres + idplite + OpenTDF platform)
-  version   Print version information
-  help      Show this help
+  serve          Start TDFLite (embedded-postgres + idplite + OpenTDF platform)
+  policy seal    Seal a plain policy bundle with SSH key or passphrase
+  policy rebind  Re-encrypt a sealed bundle with a different SSH key
+  version        Print version information
+  help           Show this help
 
 Flags (serve):
-  --config    Path to OpenTDF YAML config file (default: auto-generated)
-  --data-dir  Directory for runtime state (default: ./data)
-  --pg-port   Embedded PostgreSQL port (default: 15432)
-  --idp-port  Built-in OIDC IdP port (default: 15433)
-  --port      OpenTDF platform server port (default: 8080)`)
+  --config      Path to OpenTDF YAML config file (default: auto-generated)
+  --data-dir    Directory for runtime state (default: ./data)
+  --pg-port     Embedded PostgreSQL port (default: 15432)
+  --idp-port    Built-in OIDC IdP port (default: 15433)
+  --port        OpenTDF platform server port (default: 8080)
+  --policy      Path to sealed policy bundle (enables auto-provisioning)
+  --key         Path to SSH private key for unsealing (default: ~/.ssh/id_ed25519)
+  --passphrase  Use passphrase mode for unsealing (prompted from stdin)
+
+Flags (policy seal):
+  --policy      Path to plain policy.json (required)
+  --ssh-key     Path to SSH public key (default: ~/.ssh/id_ed25519.pub)
+  --passphrase  Use passphrase mode instead of SSH key
+  --output      Output path (default: policy.sealed.json)
+
+Flags (policy rebind):
+  --policy      Path to sealed policy file (required)
+  --old-key     Path to old SSH private key for decryption (required)
+  --new-key     Path to new SSH private key for re-encryption (required)
+  --output      Output path (default: overwrites input)`)
 }

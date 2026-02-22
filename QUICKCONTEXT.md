@@ -13,10 +13,15 @@ TDFLite starts an **embedded PostgreSQL**, a **built-in OIDC IdP**, and then cal
 ## Current State
 
 Phase 0 (Wrap-and-Shim) is **complete and verified end-to-end.**
-Phase 1 (Sealed Policy Bundle) is **in progress:**
-- Object contract defined: `Bundle`, `Attribute`, `Identity`, `Sealed` structs
-- Schema validation implemented: cross-references attributes and identity claims
-- Remaining: seal/unseal with age + SSH keys, signature, auto-provisioner, CLI commands, E2E tests
+Phase 1 (Sealed Policy Bundle) is **nearly complete:**
+- Object contract, schema validation, JSON Schema
+- Seal/unseal with age (SSH key + passphrase modes)
+- Signature gen/verify (Ed25519, RSA, ECDSA)
+- Auto-provisioner (policy → ConnectRPC calls)
+- Identity generator (policy → idplite format)
+- CLI: `tdflite policy seal`, `tdflite policy rebind`, `tdflite serve --policy`
+- 6 integration tests passing
+- Remaining: live E2E test with otdfctl (seal → boot → encrypt → decrypt)
 
 What works today:
 - `go build -o tdflite ./cmd/tdflite` → single binary
@@ -60,11 +65,8 @@ What works today:
 ## What's Next
 
 **Phase 1 — Sealed Policy Bundle** (active):
-- Seal/unseal with `age` library + SSH keys
-- Signature generation/verification
-- Auto-provisioner: policy file to ConnectRPC calls on boot
-- CLI commands: `tdflite serve --policy`, `tdflite policy seal`, `tdflite policy rebind`
-- E2E test: seal, boot, encrypt, decrypt
+- [x] Seal/unseal, signature, provisioner, identity gen, CLI — all done
+- [ ] Live E2E test with otdfctl: seal → boot → encrypt → decrypt
 
 **Phase 2** — SQLite shim (replace embedded-postgres with `modernc.org/sqlite`)
 **Phase 3** — In-memory mode for testing/CI
