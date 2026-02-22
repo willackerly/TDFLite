@@ -42,3 +42,6 @@ data/opentdf.yaml
 # TDFLite runtime state
 data/*.db
 data/*.sqlite
+
+# Sealed policy bundles (contain encrypted secrets)
+/policy.sealed.json

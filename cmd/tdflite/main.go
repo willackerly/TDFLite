@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -104,6 +105,8 @@ func runUp(args []string) error {
 	sshKeyFlag := fs.String("ssh-key", "", "path to SSH private key (default: ~/.ssh/id_ed25519)")
 	dataDirFlag := fs.String("data-dir", "data", "data directory")
 	portFlag := fs.Int("port", 8080, "platform port")
+	pgPortFlag := fs.Int("pg-port", 15432, "embedded PostgreSQL port")
+	idpPortFlag := fs.Int("idp-port", 15433, "built-in OIDC IdP port")
 	outputFlag := fs.String("output", "policy.sealed.json", "output path for sealed bundle")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -227,7 +230,28 @@ func runUp(args []string) error {
 	fmt.Printf("Sealed policy bundle: %s (fingerprint: %s)\n", *outputFlag, bundle.Sealed.Fingerprint)
 	fmt.Println()
 
-	// Step 5: Boot the platform.
+	// Step 5: Auto-detect port conflicts.
+	pgPort := *pgPortFlag
+	if !portAvailable(pgPort) {
+		old := pgPort
+		pgPort = findFreePort(pgPort)
+		fmt.Printf("Port %d in use — using %d for PostgreSQL\n", old, pgPort)
+	}
+	idpPort := *idpPortFlag
+	if !portAvailable(idpPort) {
+		old := idpPort
+		idpPort = findFreePort(idpPort)
+		fmt.Printf("Port %d in use — using %d for OIDC IdP\n", old, idpPort)
+	}
+	platformPort := *portFlag
+	if !portAvailable(platformPort) {
+		old := platformPort
+		platformPort = findFreePort(platformPort)
+		fmt.Printf("Port %d in use — using %d for platform\n", old, platformPort)
+	}
+
+	// Step 6: Boot the platform.
+	fmt.Println()
 	fmt.Println("Starting TDFLite platform...")
 	fmt.Println()
 
@@ -235,7 +259,9 @@ func runUp(args []string) error {
 		"--policy", *outputFlag,
 		"--key", privKeyPath,
 		"--data-dir", *dataDirFlag,
-		"--port", strconv.Itoa(*portFlag),
+		"--port", strconv.Itoa(platformPort),
+		"--pg-port", strconv.Itoa(pgPort),
+		"--idp-port", strconv.Itoa(idpPort),
 	}
 	return runServe(serveArgs)
 }
@@ -710,6 +736,28 @@ func provisionAfterHealthy(ctx context.Context, logger *slog.Logger, platformURL
 // helpers
 // ---------------------------------------------------------------------------
 
+// portAvailable checks whether a TCP port can be listened on.
+func portAvailable(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
+// findFreePort returns an available TCP port. It asks the OS for one by
+// listening on :0, which assigns an ephemeral port.
+func findFreePort(preferred int) int {
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return preferred // fallback — let the caller deal with it
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	return port
+}
+
 // stdinReader is a package-level buffered reader for stdin. Using a single
 // reader avoids the problem where multiple bufio.Scanner instances each
 // consume and buffer data independently, causing reads after the first to fail.
@@ -749,6 +797,8 @@ Flags (up):
   --ssh-key     Path to SSH private key (default: ~/.ssh/id_ed25519)
   --data-dir    Data directory (default: data)
   --port        Platform port (default: 8080)
+  --pg-port     Embedded PostgreSQL port (default: 15432)
+  --idp-port    Built-in OIDC IdP port (default: 15433)
   --output      Output path for sealed bundle (default: policy.sealed.json)
 
 Flags (serve):
