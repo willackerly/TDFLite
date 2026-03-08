@@ -10,7 +10,7 @@ import (
 )
 
 func TestDefaultConfig(t *testing.T) {
-	cfg := DefaultConfig(15432, 15433, 8080)
+	cfg := DefaultConfig("/data", 15432, 15433, 8080)
 
 	if cfg.DBHost != "localhost" {
 		t.Errorf("DBHost = %q, want %q", cfg.DBHost, "localhost")
@@ -69,7 +69,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestDefaultConfigCustomPorts(t *testing.T) {
-	cfg := DefaultConfig(5432, 9090, 3000)
+	cfg := DefaultConfig("/data", 5432, 9090, 3000)
 
 	if cfg.DBPort != 5432 {
 		t.Errorf("DBPort = %d, want 5432", cfg.DBPort)
@@ -89,7 +89,7 @@ func TestWriteConfigFileCreatesValidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "subdir", "tdflite.yaml")
 
-	cfg := DefaultConfig(15432, 15433, 8080)
+	cfg := DefaultConfig("/data", 15432, 15433, 8080)
 	if err := WriteConfigFile(cfg, path); err != nil {
 		t.Fatalf("WriteConfigFile() error: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestWriteConfigFileContainsRequiredFields(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tdflite.yaml")
 
-	cfg := DefaultConfig(15432, 15433, 8080)
+	cfg := DefaultConfig("/data", 15432, 15433, 8080)
 	if err := WriteConfigFile(cfg, path); err != nil {
 		t.Fatalf("WriteConfigFile() error: %v", err)
 	}
@@ -158,12 +158,12 @@ func TestWriteConfigFileContainsRequiredFields(t *testing.T) {
 		"keys:",
 		"kid: r1",
 		"alg: rsa:2048",
-		"private: data/kas-private.pem",
-		"cert: data/kas-cert.pem",
+		"private: /data/kas-private.pem",
+		"cert: /data/kas-cert.pem",
 		"kid: e1",
 		"alg: ec:secp256r1",
-		"private: data/kas-ec-private.pem",
-		"cert: data/kas-ec-cert.pem",
+		"private: /data/kas-ec-private.pem",
+		"cert: /data/kas-ec-cert.pem",
 		"services:",
 		"entityresolution:",
 		"mode: claims",
@@ -183,7 +183,7 @@ func TestWriteConfigFileStructure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tdflite.yaml")
 
-	cfg := DefaultConfig(15432, 15433, 8080)
+	cfg := DefaultConfig("/data", 15432, 15433, 8080)
 	if err := WriteConfigFile(cfg, path); err != nil {
 		t.Fatalf("WriteConfigFile() error: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestWriteConfigFileCreatesDirectories(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a", "b", "c", "tdflite.yaml")
 
-	cfg := DefaultConfig(15432, 15433, 8080)
+	cfg := DefaultConfig("/data", 15432, 15433, 8080)
 	if err := WriteConfigFile(cfg, path); err != nil {
 		t.Fatalf("WriteConfigFile() error: %v", err)
 	}

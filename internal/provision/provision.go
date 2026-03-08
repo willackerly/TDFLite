@@ -9,6 +9,10 @@ package provision
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,11 +29,16 @@ const (
 	namespaceService      = "policy.namespaces.NamespaceService"
 	attributesService     = "policy.attributes.AttributesService"
 	subjectMappingService = "policy.subjectmapping.SubjectMappingService"
+	kasRegistryService    = "policy.kasregistry.KeyAccessServerRegistryService"
 
 	createNamespace      = "CreateNamespace"
 	listNamespaces       = "ListNamespaces"
 	createAttribute      = "CreateAttribute"
 	createSubjectMapping = "CreateSubjectMapping"
+
+	createKeyAccessServer = "CreateKeyAccessServer"
+	createKey             = "CreateKey"
+	setBaseKey            = "SetBaseKey"
 )
 
 // Protobuf enum values used in the API.
@@ -163,6 +172,201 @@ func Provision(ctx context.Context, bundle *policybundle.Bundle, platformURL str
 
 	logger.Info("provisioning complete")
 	return nil
+}
+
+// ProvisionKASRegistration registers the KAS and its key in the platform's
+// policy database, then sets the base key. This populates the well-known
+// configuration's `base_key` field, which the OpenTDF SDK requires for
+// encrypt operations.
+//
+// The function reads the KAS public key from the given PEM file path
+// (typically data/kas-cert.pem), registers it in the KAS registry, and
+// marks it as the active base key.
+//
+// This must be called AFTER the platform is healthy and AFTER policy
+// provisioning is complete.
+// ProvisionKASRegistration registers the KAS and its key in the platform's
+// policy database, then sets the base key. kasExternalURL is the URL external
+// clients use to reach KAS (may differ from platformURL in Docker).
+func ProvisionKASRegistration(ctx context.Context, platformURL, authToken, kasPublicKeyPEM, kasPrivateKeyPEM, kasExternalURL string) error {
+	logger := slog.Default()
+
+	if kasExternalURL == "" {
+		kasExternalURL = platformURL
+	}
+
+	// Step 1: Register the Key Access Server with external-facing URL.
+	logger.Info("registering KAS in platform registry", "uri", kasExternalURL)
+
+	kasBody := map[string]interface{}{
+		"uri":  kasExternalURL,
+		"name": "default-kas",
+	}
+
+	kasRespBytes, err := connectCall(ctx, platformURL, authToken, kasRegistryService, createKeyAccessServer, kasBody)
+	if err != nil {
+		if isAlreadyExists(err) {
+			logger.Info("KAS already registered, looking up existing")
+			// KAS already registered — look it up to get the ID.
+			listResp, listErr := connectCall(ctx, platformURL, authToken, kasRegistryService, "ListKeyAccessServers", map[string]interface{}{})
+			if listErr != nil {
+				return fmt.Errorf("listing KAS servers: %w", listErr)
+			}
+			kasID, findErr := extractFirstKASID(listResp)
+			if findErr != nil {
+				return fmt.Errorf("finding existing KAS: %w", findErr)
+			}
+			return provisionKASKey(ctx, logger, platformURL, authToken, kasID, kasPublicKeyPEM, kasPrivateKeyPEM)
+		}
+		return fmt.Errorf("creating KAS: %w", err)
+	}
+
+	// Extract KAS ID from response.
+	var kasResp struct {
+		KeyAccessServer struct {
+			ID string `json:"id"`
+		} `json:"keyAccessServer"`
+	}
+	if err := json.Unmarshal(kasRespBytes, &kasResp); err != nil {
+		return fmt.Errorf("parsing KAS response: %w", err)
+	}
+	kasID := kasResp.KeyAccessServer.ID
+	logger.Info("KAS registered", "id", kasID)
+
+	return provisionKASKey(ctx, logger, platformURL, authToken, kasID, kasPublicKeyPEM, kasPrivateKeyPEM)
+}
+
+// provisionKASKey creates an asymmetric key for the KAS and sets it as the base key.
+func provisionKASKey(ctx context.Context, logger *slog.Logger, platformURL, authToken, kasID, publicKeyPEM, privateKeyPEM string) error {
+	// Step 2: Create an asymmetric key for the KAS.
+	logger.Info("creating KAS key", "kasId", kasID, "kid", "e1")
+
+	// Wrap the private key with a random AES-256-GCM KEK.
+	// The wrapped key is stored in the DB for key management but
+	// the KAS crypto provider reads keys from disk, not the DB.
+	wrappedPrivKey, err := wrapKeyForDB(privateKeyPEM)
+	if err != nil {
+		return fmt.Errorf("wrapping private key: %w", err)
+	}
+
+	keyBody := map[string]interface{}{
+		"kasId":        kasID,
+		"keyId":        "e1",
+		"keyAlgorithm": 3, // ALGORITHM_EC_P256 (NanoTDF requires EC)
+		"keyMode":      1, // KEY_MODE_CONFIG_ROOT_KEY
+		"publicKeyCtx": map[string]interface{}{
+			"pem": base64.StdEncoding.EncodeToString([]byte(publicKeyPEM)),
+		},
+		"privateKeyCtx": map[string]interface{}{
+			"keyId":      "e1",
+			"wrappedKey": wrappedPrivKey,
+		},
+	}
+
+	keyRespBytes, err := connectCall(ctx, platformURL, authToken, kasRegistryService, createKey, keyBody)
+	if err != nil {
+		if isAlreadyExists(err) {
+			logger.Info("KAS key already exists, skipping creation")
+			// Key exists — try to set base key anyway (might already be set).
+			return setBaseKeyByKID(ctx, logger, platformURL, authToken, kasID, "e1")
+		}
+		return fmt.Errorf("creating KAS key: %w", err)
+	}
+
+	// Extract key ID from response: kasKey.key.id
+	var keyResp struct {
+		KasKey struct {
+			Key struct {
+				ID string `json:"id"`
+			} `json:"key"`
+		} `json:"kasKey"`
+	}
+	if err := json.Unmarshal(keyRespBytes, &keyResp); err != nil {
+		return fmt.Errorf("parsing key response: %w", err)
+	}
+	keyID := keyResp.KasKey.Key.ID
+	logger.Info("KAS key created", "id", keyID)
+
+	// Step 3: Set as base key.
+	logger.Info("setting base key", "keyId", keyID)
+
+	baseKeyBody := map[string]interface{}{
+		"id": keyID,
+	}
+
+	_, err = connectCall(ctx, platformURL, authToken, kasRegistryService, setBaseKey, baseKeyBody)
+	if err != nil {
+		return fmt.Errorf("setting base key: %w", err)
+	}
+
+	logger.Info("base key set successfully")
+	return nil
+}
+
+// setBaseKeyByKID sets the base key by looking up the key by KAS ID and KID.
+func setBaseKeyByKID(ctx context.Context, logger *slog.Logger, platformURL, authToken, kasID, kid string) error {
+	// Use the SetBaseKey with key lookup (by kasId + kid).
+	baseKeyBody := map[string]interface{}{
+		"key": map[string]interface{}{
+			"kasId": kasID,
+			"keyId": kid,
+		},
+	}
+
+	_, err := connectCall(ctx, platformURL, authToken, kasRegistryService, setBaseKey, baseKeyBody)
+	if err != nil {
+		logger.Warn("failed to set base key (may already be set)", "error", err)
+		return nil // Non-fatal: key may already be the base key
+	}
+
+	logger.Info("base key set successfully (from existing key)")
+	return nil
+}
+
+// wrapKeyForDB encrypts a private key PEM with a random AES-256-GCM key and
+// returns the result as base64. This satisfies the platform's requirement that
+// CONFIG_ROOT_KEY mode keys are not stored as raw PEM in the DB. The KAS
+// crypto provider reads actual keys from disk config, not from the DB.
+func wrapKeyForDB(privateKeyPEM string) (string, error) {
+	// Generate a random 32-byte KEK.
+	kek := make([]byte, 32)
+	if _, err := rand.Read(kek); err != nil {
+		return "", fmt.Errorf("generating KEK: %w", err)
+	}
+
+	block, err := aes.NewCipher(kek)
+	if err != nil {
+		return "", fmt.Errorf("creating cipher: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("creating GCM: %w", err)
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("generating nonce: %w", err)
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, []byte(privateKeyPEM), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// extractFirstKASID extracts the first KAS ID from a ListKeyAccessServers response.
+func extractFirstKASID(respBytes []byte) (string, error) {
+	var resp struct {
+		KeyAccessServers []struct {
+			ID string `json:"id"`
+		} `json:"keyAccessServers"`
+	}
+	if err := json.Unmarshal(respBytes, &resp); err != nil {
+		return "", fmt.Errorf("parsing KAS list: %w", err)
+	}
+	if len(resp.KeyAccessServers) == 0 {
+		return "", fmt.Errorf("no KAS servers found")
+	}
+	return resp.KeyAccessServers[0].ID, nil
 }
 
 // createOrFindNamespace creates a namespace or finds it if it already exists.

@@ -43,10 +43,11 @@ type CryptoKeyConfig struct {
 	Cert       string // path to cert PEM file
 }
 
-// DefaultConfig returns a TDFLiteConfig with sensible defaults for local
-// development. pgPort is the embedded PostgreSQL port, idpPort is the
-// built-in OIDC IdP port, serverPort is the platform server port.
-func DefaultConfig(pgPort, idpPort, serverPort int) TDFLiteConfig {
+// DefaultConfig returns a TDFLiteConfig with sensible defaults.
+// dataDir must be an absolute path to the data directory where key files
+// and the embedded Postgres data reside. Using absolute paths ensures the
+// crypto provider works regardless of process CWD (critical for Docker).
+func DefaultConfig(dataDir string, pgPort, idpPort, serverPort int) TDFLiteConfig {
 	return TDFLiteConfig{
 		DBHost:     "localhost",
 		DBPort:     pgPort,
@@ -67,14 +68,14 @@ func DefaultConfig(pgPort, idpPort, serverPort int) TDFLiteConfig {
 			{
 				KID:        "r1",
 				Algorithm:  "rsa:2048",
-				PrivateKey: "data/kas-private.pem",
-				Cert:       "data/kas-cert.pem",
+				PrivateKey: filepath.Join(dataDir, "kas-private.pem"),
+				Cert:       filepath.Join(dataDir, "kas-cert.pem"),
 			},
 			{
 				KID:        "e1",
 				Algorithm:  "ec:secp256r1",
-				PrivateKey: "data/kas-ec-private.pem",
-				Cert:       "data/kas-ec-cert.pem",
+				PrivateKey: filepath.Join(dataDir, "kas-ec-private.pem"),
+				Cert:       filepath.Join(dataDir, "kas-ec-cert.pem"),
 			},
 		},
 	}
@@ -159,7 +160,12 @@ type cryptoKeyYAML struct {
 
 type servicesConfig struct {
 	EntityResolution entityResolutionConfig `yaml:"entityresolution"`
+	KAS              kasServiceConfig       `yaml:"kas"`
 	Policy           policyConfig           `yaml:"policy"`
+}
+
+type kasServiceConfig struct {
+	ECTDFEnabled bool `yaml:"ec_tdf_enabled"`
 }
 
 type entityResolutionConfig struct {
@@ -223,6 +229,7 @@ func toOpenTDFConfig(cfg TDFLiteConfig) openTDFConfig {
 		},
 		Services: servicesConfig{
 			EntityResolution: entityResolutionConfig{Mode: cfg.EntityResolutionMode},
+			KAS:              kasServiceConfig{ECTDFEnabled: true},
 			Policy: policyConfig{
 				ListRequestLimitMax:     2500,
 				ListRequestLimitDefault: 1000,

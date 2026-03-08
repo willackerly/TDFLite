@@ -651,7 +651,8 @@ func runServe(args []string) error {
 	// Generate OpenTDF platform config.
 	cfgFile := *configPath
 	if cfgFile == "" {
-		loaderCfg := loader.DefaultConfig(*pgPort, *idpPort, *platformPort)
+		absDataDir, _ := filepath.Abs(*dataDir)
+		loaderCfg := loader.DefaultConfig(absDataDir, *pgPort, *idpPort, *platformPort)
 
 		cfgFile = filepath.Join(*dataDir, "opentdf.yaml")
 		logger.Info("generating OpenTDF config", "path", cfgFile)
@@ -666,8 +667,9 @@ func runServe(args []string) error {
 		idpURL := fmt.Sprintf("http://localhost:%d", *idpPort)
 		platformURL := fmt.Sprintf("http://localhost:%d", *platformPort)
 		provBundle := bundle
+		dDir := *dataDir
 		go func() {
-			provisionAfterHealthy(ctx, logger, platformURL, idpURL, provBundle, *platformPort)
+			provisionAfterHealthy(ctx, logger, platformURL, idpURL, provBundle, *platformPort, dDir)
 		}()
 	}
 
@@ -689,7 +691,7 @@ func runServe(args []string) error {
 
 // provisionAfterHealthy waits for the platform health endpoint to respond,
 // then provisions policy from the bundle.
-func provisionAfterHealthy(ctx context.Context, logger *slog.Logger, platformURL, idpURL string, bundle *policybundle.Bundle, platformPort int) {
+func provisionAfterHealthy(ctx context.Context, logger *slog.Logger, platformURL, idpURL string, bundle *policybundle.Bundle, platformPort int, dataDir string) {
 	healthURL := fmt.Sprintf("http://localhost:%d/healthz", platformPort)
 
 	logger.Info("waiting for platform health check", "url", healthURL)
@@ -730,6 +732,36 @@ func provisionAfterHealthy(ctx context.Context, logger *slog.Logger, platformURL
 	}
 
 	logger.Info("policy provisioned successfully")
+
+	// Register KAS and set base key (populates well-known base_key).
+	// Read both RSA and EC key pairs — NanoTDF requires EC, TDF3 uses RSA.
+	kasCertPath := filepath.Join(dataDir, "kas-ec-cert.pem")
+	kasKeyPath := filepath.Join(dataDir, "kas-ec-private.pem")
+	kasPEM, err := os.ReadFile(kasCertPath)
+	if err != nil {
+		logger.Error("cannot read KAS EC public key", "error", err, "path", kasCertPath)
+		logger.Warn("well-known base_key will be empty — OpenTDF SDK encrypt will fail")
+		return
+	}
+	kasPrivPEM, err := os.ReadFile(kasKeyPath)
+	if err != nil {
+		logger.Error("cannot read KAS EC private key", "error", err, "path", kasKeyPath)
+		logger.Warn("well-known base_key will be empty — OpenTDF SDK encrypt will fail")
+		return
+	}
+
+	// KAS external URL: what clients use to reach KAS. Defaults to platformURL
+	// but may differ in Docker (e.g., host:8085 → container:8080).
+	kasExternalURL := os.Getenv("TDFLITE_KAS_EXTERNAL_URL")
+	if kasExternalURL == "" {
+		kasExternalURL = platformURL
+	}
+	if err := provision.ProvisionKASRegistration(ctx, platformURL, token, string(kasPEM), string(kasPrivPEM), kasExternalURL); err != nil {
+		logger.Error("KAS registration failed", "error", err)
+		logger.Warn("well-known base_key will be empty — OpenTDF SDK encrypt will fail")
+		return
+	}
+	logger.Info("KAS registered and base key set")
 }
 
 // ---------------------------------------------------------------------------

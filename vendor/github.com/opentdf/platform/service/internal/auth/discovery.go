@@ -27,6 +27,9 @@ type OIDCConfiguration struct {
 	SubjectTypesSupported            []string `json:"subject_types_supported"`
 	IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
 	RequireRequestURIRegistration    bool     `json:"require_request_uri_registration"`
+	// PublicClientID is the non-confidential client ID for public auth flows.
+	// Required by otdfctl and the OpenTDF SDK for token exchange.
+	PublicClientID string `json:"public_client_id,omitempty"`
 }
 
 // DiscoverOPENIDConfiguration discovers the openid configuration for the issuer provided

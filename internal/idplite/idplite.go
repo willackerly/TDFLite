@@ -216,11 +216,16 @@ func (s *Server) handleDiscovery(w http.ResponseWriter, r *http.Request) {
 		"authorization_endpoint":                s.issuer + "/authorize",
 		"token_endpoint":                        s.issuer + "/token",
 		"jwks_uri":                              s.issuer + "/jwks",
+		"userinfo_endpoint":                     "",
 		"response_types_supported":              []string{"code"},
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"grant_types_supported":                 []string{"client_credentials", "password"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
+		// public_client_id is required by otdfctl and the OpenTDF SDK
+		// for the auth flow. It identifies the non-confidential client
+		// used for token exchange without a client_secret.
+		"public_client_id": "opentdf-public",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
